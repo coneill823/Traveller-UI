@@ -1,7 +1,7 @@
 /** Campaign-wide actions: settings, players, generic edits, knowledge reveals, notes and dice. */
 import { FACETS, PRESETS, toggleAudience, withAudience, type Viewer } from '../../shared/knowledge';
 import { rootField, type PatchOp } from '../../shared/patch';
-import { PARTY, type Audience, type Body, type Campaign, type Entity, type Id, type Note, type Objective, type Player, type Roll, type StarSystem } from '../../shared/types';
+import { PARTY, type Audience, type Body, type Campaign, type Character, type Entity, type Id, type Note, type Objective, type Player, type Roll, type StarSystem } from '../../shared/types';
 import { newId, rollDice, sum } from '../../shared/util';
 import { prettyCode } from '../auth';
 import type { Tx } from '../state';
@@ -51,6 +51,7 @@ const GM_LOCKED: Record<string, string[]> = {
   roll: ['dice', 'total', 'dm', 'playerId', 'effect', 'target'],
   asset: ['url', 'mime', 'size', 'uploadedBy'],
   objective: ['createdBy'],
+  character: ['kind'],
 };
 
 /** Fields a player may edit on entities they own. Returns null when the entity is not theirs to edit. */
@@ -62,10 +63,17 @@ function playerEditable(entity: Entity, me: Viewer): string[] | null {
       const o = entity as Objective;
       return o.createdBy === me.playerId && o.scope === me.playerId ? ['title', 'body', 'status', 'targets', 'reward'] : null;
     }
+    case 'character': {
+      const c = entity as Character;
+      return c.kind === 'pc' && c.ownerId === me.playerId ? PLAYER_CHARACTER_FIELDS : null;
+    }
     default:
       return null;
   }
 }
+
+/** Everything on their own sheet except who owns it and what kind of character it is. */
+const PLAYER_CHARACTER_FIELDS = ['name', 'title', 'species', 'age', 'homeworld', 'careers', 'chars', 'skills', 'weapons', 'armour', 'credits', 'portrait', 'bio', 'secrets', 'traits', 'conditions', 'movement'];
 
 function checkOps(value: unknown): PatchOp[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 200) throw new ActionError('Invalid "ops": expected a list of edits');
@@ -139,7 +147,9 @@ action('entity.delete', (ctx, p) => {
   const entity = ctx.tx.get(id);
   if (!entity) return;
   if (ctx.me.role !== 'gm') {
-    const own = entity.type === 'objective' && (entity as Objective).createdBy === ctx.me.playerId && (entity as Objective).scope === ctx.me.playerId;
+    const own =
+      (entity.type === 'objective' && (entity as Objective).createdBy === ctx.me.playerId && (entity as Objective).scope === ctx.me.playerId) ||
+      (entity.type === 'character' && (entity as Character).kind === 'pc' && (entity as Character).ownerId === ctx.me.playerId);
     if (!own) throw new ActionError('You cannot delete that');
   }
   if (entity.type === 'player') throw new ActionError('Use the players panel to remove a player');
@@ -333,46 +343,60 @@ action('note.reveal', (ctx, p) => {
 
 const MAX_ROLLS = 300;
 
-action('dice.roll', (ctx, p) => {
-  const label = check.str(p.label ?? 'Roll', 'label', { max: 120 });
-  const dm = p.dm === undefined ? 0 : check.int(p.dm, 'dm', { min: -30, max: 30 });
-  const target = p.target === undefined || p.target === null ? undefined : check.int(p.target, 'target', { min: 0, max: 40 });
-  const mode = p.mode === undefined || p.mode === null ? undefined : check.oneOf(p.mode, 'mode', ['boon', 'bane'] as const);
+export interface RollInput {
+  label: string;
+  dm: number;
+  target?: number;
+  /** Number of dice (before any boon/bane die). */
+  dice?: number;
+  mode?: 'boon' | 'bane';
+  /** Dice rolled at the table and typed in (including the extra boon/bane die). */
+  manual?: number[];
+  secret?: boolean;
+  actor?: string;
+  kind?: Roll['kind'];
+  characterId?: Id;
+  breakdown?: Roll['breakdown'];
+  detail?: string;
+  /** Fixed total for rolls whose dice were resolved elsewhere (weapon damage). */
+  total?: number;
+  /** Dice already rolled by a rules engine; logged as rolled by the app, not as a table roll. */
+  fixedDice?: number[];
+}
+
+/** Rolls (or records) dice and adds the result to the shared log. */
+export function makeRoll(ctx: ActionCtx, input: RollInput): Roll {
   let dice: number[];
-  let manual = false;
-  if (p.manual !== undefined) {
-    // Dice rolled at the table and typed in.
-    dice = check.arr(p.manual, 'manual', (v, n) => check.int(v, n, { min: 1, max: 6 }), 20);
-    if (dice.length === 0) throw new ActionError('Enter at least one die');
-    manual = true;
-  } else {
-    const count = p.dice === undefined ? 2 : check.int(p.dice, 'dice', { min: 1, max: 20 });
-    dice = rollDice(count + (mode ? 1 : 0));
-  }
+  if (input.fixedDice) dice = input.fixedDice;
+  else if (input.manual) dice = input.manual;
+  else dice = rollDice((input.dice ?? 2) + (input.mode ? 1 : 0));
   // A boon drops the lowest die, a bane the highest.
   let dropped: number[] | undefined;
-  if (mode && dice.length > 1) {
+  if (input.mode && dice.length > 1) {
     const sorted = [...dice].sort((a, b) => a - b);
-    const drop = mode === 'boon' ? sorted[0] : sorted[sorted.length - 1];
+    const drop = input.mode === 'boon' ? sorted[0] : sorted[sorted.length - 1];
     const at = dice.indexOf(drop);
     dropped = [drop];
     dice = dice.filter((_, i) => i !== at);
   }
-  const total = sum(dice) + dm;
-  const visibility = p.to === undefined ? 'party' : check.oneOf(p.to, 'to', ['party', 'gm'] as const);
+  const total = input.total ?? sum(dice) + input.dm;
   const roll = ctx.tx.create('roll', {
     playerId: ctx.me.playerId,
-    actor: check.optStr(p.actor, 'actor', { max: 80 }),
-    label,
+    actor: input.actor,
+    label: input.label,
     dice,
-    dm,
+    dm: input.dm,
     total,
-    target,
-    effect: target === undefined ? undefined : total - target,
-    manual: manual || undefined,
-    mode,
+    target: input.target,
+    effect: input.target === undefined ? undefined : total - input.target,
+    manual: input.manual ? true : undefined,
+    mode: input.mode,
     dropped,
-    to: visibility === 'party' ? [PARTY] : [],
+    kind: input.kind,
+    characterId: input.characterId,
+    breakdown: input.breakdown,
+    detail: input.detail,
+    to: input.secret ? [] : [PARTY],
     at: Date.now(),
   });
   // Keep the log bounded.
@@ -381,7 +405,33 @@ action('dice.roll', (ctx, p) => {
     const oldest = [...rolls].sort((a: Roll, b: Roll) => a.at - b.at).slice(0, rolls.length - MAX_ROLLS);
     for (const old of oldest) ctx.tx.delete(old.id);
   }
-  return { id: roll.id, dice, dropped, total, effect: roll.effect };
+  return roll;
+}
+
+/** Reads the dice options shared by every rolling action. */
+export function rollOptions(p: any, diceNeeded = 2): Pick<RollInput, 'mode' | 'manual' | 'secret'> {
+  const mode = p.mode === undefined || p.mode === null ? undefined : check.oneOf(p.mode, 'mode', ['boon', 'bane'] as const);
+  let manual: number[] | undefined;
+  if (p.manual !== undefined && p.manual !== null) {
+    manual = check.arr(p.manual, 'manual', (v, n) => check.int(v, n, { min: 1, max: 6 }), 20);
+    const needed = diceNeeded + (mode ? 1 : 0);
+    if (manual.length !== needed) throw new ActionError(`Enter ${needed} dice`);
+  }
+  const to = p.to === undefined ? 'party' : check.oneOf(p.to, 'to', ['party', 'gm'] as const);
+  return { mode, manual, secret: to === 'gm' };
+}
+
+action('dice.roll', (ctx, p) => {
+  const dice = p.dice === undefined ? 2 : check.int(p.dice, 'dice', { min: 1, max: 20 });
+  const roll = makeRoll(ctx, {
+    label: check.str(p.label ?? 'Roll', 'label', { max: 120 }),
+    dm: p.dm === undefined ? 0 : check.int(p.dm, 'dm', { min: -30, max: 30 }),
+    target: p.target === undefined || p.target === null ? undefined : check.int(p.target, 'target', { min: 0, max: 40 }),
+    dice,
+    actor: check.optStr(p.actor, 'actor', { max: 80 }),
+    ...rollOptions(p, dice),
+  });
+  return { id: roll.id, dice: roll.dice, dropped: roll.dropped, total: roll.total, effect: roll.effect };
 });
 
 action('dice.clear', (ctx) => {

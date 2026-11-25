@@ -3,6 +3,7 @@ import os from 'node:os';
 import { createApp } from './http';
 import { CAMPAIGN_ID, createCampaign, createPlayer } from './actions/core';
 import './actions/map';
+import './actions/characters';
 import './actions/objectives';
 import './actions/wiki';
 import type { Services } from './actions/registry';

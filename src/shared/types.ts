@@ -221,6 +221,75 @@ export interface WikiPage extends EntityBase {
   warnings?: string[];
 }
 
+// ──────────────────────────────── characters ────────────────────────────────
+
+export type CharKey = 'STR' | 'DEX' | 'END' | 'INT' | 'EDU' | 'SOC' | 'PSI';
+
+export interface CharScore {
+  /** Current value, after damage. */
+  value: number;
+  /** Undamaged score. */
+  max: number;
+}
+
+export interface CharacterWeapon {
+  id: Id;
+  /** Rules-pack weapon this was taken from, if any. */
+  defId?: string;
+  name: string;
+  skill: string;
+  damage: string;
+  range: number | 'melee';
+  traits?: string[];
+  magazine?: number | 'unlimited';
+  /** Rounds left in the weapon. */
+  ammo?: number;
+  note?: string;
+}
+
+export interface CharacterArmour {
+  id: Id;
+  defId?: string;
+  name: string;
+  protection: number;
+  laserProtection?: number;
+  rad?: number;
+  kg?: number;
+  worn: boolean;
+  note?: string;
+}
+
+/** A player character, non-player character or creature. */
+export interface Character extends EntityBase {
+  type: 'character';
+  kind: 'pc' | 'npc' | 'creature';
+  /** The player who runs this character. */
+  ownerId?: Id;
+  name?: string;
+  /** Role, rank or a one-line descriptor. */
+  title?: string;
+  species?: string;
+  age?: number;
+  homeworld?: string;
+  careers?: { name: string; terms: number; rank?: string }[];
+  chars?: Partial<Record<CharKey, CharScore>>;
+  /** Skill name (with speciality in brackets) -> level. */
+  skills?: Record<string, number>;
+  weapons?: CharacterWeapon[];
+  armour?: CharacterArmour[];
+  credits?: number;
+  /** Uploaded portrait image. */
+  portrait?: string;
+  /** Background the rest of the party may read (markdown). */
+  bio?: string;
+  /** Private notes: the owning player and the GM only. */
+  secrets?: string;
+  traits?: string[];
+  conditions?: string[];
+  /** Metres per minor action. */
+  movement?: number;
+}
+
 // ─────────────────────────────────── dice ───────────────────────────────────
 
 export interface Roll extends EntityBase {
@@ -243,6 +312,13 @@ export interface Roll extends EntityBase {
   mode?: 'boon' | 'bane';
   /** The die discarded for a boon or bane. */
   dropped?: number[];
+  /** What the roll was: a plain roll, a skill check, an attack or a damage roll. */
+  kind?: 'roll' | 'check' | 'attack' | 'damage' | 'initiative';
+  characterId?: Id;
+  /** Where the modifier came from, for display. */
+  breakdown?: { label: string; dm: number }[];
+  /** Extra detail for damage rolls: armour piercing, multiplier and reminders. */
+  detail?: string;
   /** Audiences who see the roll. Empty = GM only (a hidden roll). */
   to: Audience[];
   at: number;
@@ -270,6 +346,7 @@ export type Entity =
   | Objective
   | WikiPage
   | Roll
+  | Character
   | Asset;
 
 export type EntityType = Entity['type'];
@@ -288,5 +365,6 @@ export const ID_PREFIX: Record<EntityType, string> = {
   objective: 'obj',
   wikiPage: 'wik',
   roll: 'rol',
+  character: 'chr',
   asset: 'ast',
 };

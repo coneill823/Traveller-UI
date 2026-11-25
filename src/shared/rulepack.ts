@@ -104,10 +104,112 @@ export interface TaskRules {
   unskilledDm: number;
 }
 
+export interface SkillDef {
+  name: string;
+  /** Characteristic most often used with the skill (a default for one-click checks). */
+  char?: string;
+  specialities?: string[];
+  /** Default characteristic per speciality, where it differs from `char`. */
+  specialityChar?: Record<string, string>;
+  /** Players may add their own specialities (languages, sciences, professions). */
+  openSpecialities?: boolean;
+  /** 'jack' marks the skill that offsets the unskilled penalty instead of being rolled. */
+  special?: 'jack';
+}
+
+export interface SpeciesDef {
+  id: string;
+  name: string;
+  /** Characteristic modifiers applied at creation. */
+  mods: Record<string, number>;
+  /** Metres moved per minor action. */
+  movement: number;
+  traits: { name: string; note: string }[];
+  weapons?: { name: string; skill: string; damage: string; range: WeaponRange }[];
+}
+
+export interface CharacterRules {
+  characteristics: { id: string; name: string; physical: boolean; optional?: boolean }[];
+  maxUnaugmented: number;
+  skills: SkillDef[];
+  species: SpeciesDef[];
+  careers: string[];
+  encumbrance: { note: string; overloadDm: number; overloadMultiple: number; wornArmourFraction: number };
+  damageOrder: { first: string; then: string[] };
+}
+
+/** Effective range in metres, or 'melee'. */
+export type WeaponRange = number | 'melee';
+
+export interface WeaponDef {
+  id: string;
+  name: string;
+  group: string;
+  /** Skill used to attack, e.g. "Gun Combat (slug)". */
+  skill: string;
+  tl?: number;
+  range: WeaponRange;
+  /** Damage dice such as "3D-3", "2DD" (destructive), or "" for none. */
+  damage: string;
+  kg?: number;
+  cost?: number;
+  magazine?: number | 'unlimited';
+  magazineCost?: number;
+  traits?: string[];
+  note?: string;
+}
+
+export interface ArmourDef {
+  id: string;
+  name: string;
+  protection: number;
+  /** Protection against lasers, where it differs. */
+  laserProtection?: number;
+  tl: number;
+  rad?: number;
+  kg: number;
+  cost: number;
+  skill?: { name: string; level: number };
+  /** Powered armour carries its own weight. */
+  powered?: boolean;
+  note?: string;
+}
+
+export interface GearRules {
+  weapons: WeaponDef[];
+  armour: ArmourDef[];
+  weaponTraits: { id: string; name: string; note: string }[];
+}
+
+export interface CombatRules {
+  attackTarget: number;
+  roundSeconds: number;
+  squareMetres: number;
+  closeCombatMetres: number;
+  movement: number;
+  initiative: { characteristics: string[]; ambushDm: number; note: string };
+  range: {
+    shortFraction: number;
+    longMultiple: number;
+    extremeMultiple: number;
+    /** Without an aimed scope, anything beyond this many metres counts as extreme range. */
+    unscopedExtremeBeyond: number;
+    bands: { id: string; name: string; dm: number }[];
+  };
+  modifiers: { id: string; name: string; dm: number; stack?: number; note?: string }[];
+  actions: { id: string; name: string; type: 'significant' | 'minor' | 'free' | 'reaction'; note: string }[];
+  turn: { significant: number; minor: number; minorsInsteadOfSignificant: number };
+  cover: { name: string; protection: number }[];
+  damage: { minimumOnEffect: number; destructiveMultiplier: number; meleeAddsStrDm: boolean };
+}
+
 export interface RulePack {
   packs: PackMeta[];
   world?: WorldRules;
   tasks?: TaskRules;
+  characters?: CharacterRules;
+  gear?: GearRules;
+  combat?: CombatRules;
   // Later slices add: skills, gear, trade, ships, combat, spaceCombat.
   [section: string]: unknown;
 }

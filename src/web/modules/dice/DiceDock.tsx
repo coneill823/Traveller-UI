@@ -55,6 +55,12 @@ export function RollCard({ roll }: { roll: Roll }) {
         {roll.dm !== 0 && <span className="mono dim">{roll.dm > 0 ? `+${roll.dm}` : roll.dm}</span>}
         <span className="roll-total">{roll.total}</span>
       </div>
+      {roll.breakdown && roll.breakdown.length > 0 && (
+        <div className="tiny faint mono" style={{ marginTop: 3 }}>
+          {roll.breakdown.map((b) => `${b.label} ${b.dm >= 0 ? '+' : ''}${b.dm}`).join(' · ')}
+        </div>
+      )}
+      {roll.detail && <div className="tiny" style={{ color: 'var(--warn)', marginTop: 2 }}>{roll.detail}</div>}
       {roll.target !== undefined && (
         <div className={cx('roll-effect', (roll.effect ?? 0) >= 0 ? 'pass' : 'fail')}>
           vs {roll.target}+ · Effect {(roll.effect ?? 0) >= 0 ? '+' : ''}

@@ -9,6 +9,7 @@ import {
   PARTY,
   type Audience,
   type Body,
+  type Character,
   type Entity,
   type EntityType,
   type Id,
@@ -77,6 +78,17 @@ export const FACETS: Partial<Record<EntityType, FacetSpec[]>> = {
   ],
   route: [{ key: 'exists', label: 'Known', hint: 'The route is drawn on the map.', fields: ['a', 'b', 'kind', 'label'] }],
   region: [{ key: 'exists', label: 'Known', hint: 'The region is drawn on the map.', fields: ['name', 'color', 'hexes'] }],
+  // Non-player characters and creatures. Player characters are always visible to the whole party.
+  character: [
+    { key: 'exists', label: 'Seen', hint: 'Players know this character or creature exists.', fields: ['kind', 'portrait', 'ownerId'] },
+    { key: 'name', label: 'Name', hint: 'Name, role and species.', fields: ['name', 'title', 'species'] },
+    {
+      key: 'details',
+      label: 'Stats',
+      hint: 'Characteristics, skills, weapons, armour and background.',
+      fields: ['age', 'homeworld', 'careers', 'chars', 'skills', 'weapons', 'armour', 'traits', 'bio', 'conditions', 'movement'],
+    },
+  ],
   asset: [{ key: 'exists', label: 'Shared', hint: 'The file can be opened by players.', fields: ['name', 'mime', 'size', 'url', 'uploadedBy'] }],
 };
 
@@ -193,6 +205,13 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
     }
     case 'wikiPage':
       return wikiPageView(entity as WikiPage, v) as Entity | null;
+    case 'character': {
+      const c = entity as Character;
+      if (c.kind !== 'pc') return facetView(entity, v) as Entity | null;
+      // Party members know each other; only private notes stay with the owner.
+      const { gm: _gm, known: _known, secrets, ...rest } = c;
+      return { ...rest, ...(c.ownerId === v.playerId && secrets !== undefined ? { secrets } : {}), notes: visibleNotes(c.notes, v) } as Entity;
+    }
     case 'roll': {
       const r = entity as Roll;
       if (r.playerId !== v.playerId && !audienceMatches(r.to, v)) return null;

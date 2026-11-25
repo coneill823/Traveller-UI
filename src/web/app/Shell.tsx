@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { PARTY_VIEWER_ID } from '../../shared/knowledge';
 import type { StarSystem } from '../../shared/types';
+import { CharactersPage } from '../modules/characters/CharactersPage';
+import { RollFlash } from '../modules/characters/rolling';
 import { ControlRoom } from '../modules/control/ControlRoom';
 import { DiceDock } from '../modules/dice/DiceDock';
 import { LibraryPage } from '../modules/library/LibraryPage';
@@ -22,6 +24,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { id: 'map', label: 'Map', icon: 'map' },
+  { id: 'characters', label: 'Crew', icon: 'users' },
   { id: 'objectives', label: 'Goals', icon: 'target' },
   { id: 'library', label: 'Library', icon: 'book' },
   { id: 'control', label: 'Control', icon: 'settings', gm: true },
@@ -185,6 +188,9 @@ export function Shell() {
 
   let content;
   switch (section) {
+    case 'characters':
+      content = <CharactersPage characterId={route.parts[1]} />;
+      break;
     case 'objectives':
       content = <ObjectivesPage />;
       break;
@@ -251,6 +257,7 @@ export function Shell() {
 
       <main className="content">{content}</main>
       {diceOpen && <DiceDock />}
+      <RollFlash />
     </div>
   );
 }
