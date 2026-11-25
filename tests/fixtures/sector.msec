@@ -1,0 +1,9 @@
+sector Kestrel Reach
+
+a Ardent
+b Tolland
+p The Far Verge
+
+route 0103 0204
+route 0204 0902
+border 0101 0201 0202 0102 0101 red

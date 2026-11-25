@@ -1,0 +1,8 @@
+Subsector generated 2026-11-20 (density: standard)
+
+0101  Brannoch      C8759A9-8  S  Hi In        A  504  Na
+0103  Quill         E200000-0     Ba Va           013
+0307  St. Idris     B544756-A  N  Ag Pi           212  Na  G2 V
+Hask's World | 0508 | D7A5422-6 | | Fl Ni | R
+0810  Zzyr          A9C9AAB-F  NS Fl Hi Ht In     624  Na  M0 V D
+some other line with no data
