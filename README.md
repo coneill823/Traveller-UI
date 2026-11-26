@@ -110,6 +110,11 @@ The app treats a [Chronicler](https://chronicler.pro) vault as the campaign's lo
 Chronicler; changes appear in both within a second) or `WIKI_REPO` + `WIKI_TOKEN` (the vault's
 GitHub repository; you push and pull the vault with git as usual).
 
+For a private repository the token must be one that can see it: a fine-grained token with that
+repository selected and **Contents: Read and write**. If the terminal says GitHub could not find
+the repository (404), the message says whether no token is set or the token lacks access; the app
+carries on with the rules packs it fetched last time.
+
 **Wiki → app**
 
 - Every page appears in the app's Library. Players see nothing until the GM reveals a section.

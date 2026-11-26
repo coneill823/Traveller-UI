@@ -359,6 +359,14 @@ describe('wiki sync with a GitHub repository', () => {
     expect(gh.files.get(file)).toContain('New lore from Chronicler.');
   });
 
+  it('says which it is when GitHub will not show the repository', async () => {
+    const hidden = { repo: 'owner/hidden', branch: 'main', pollSeconds: 3600, apiBase };
+    // without a token only a public repository can be read
+    await expect(new GitHubBackend(hidden).list()).rejects.toThrow(/404.*No access token is set.*WIKI_TOKEN/);
+    // a token GitHub accepts, but which was not given this repository
+    await expect(new GitHubBackend({ ...hidden, token: 'good-token' }).list()).rejects.toThrow(/404.*accepted but cannot see.*Contents: read and write/);
+  });
+
   it('explains clearly when the token cannot write', async () => {
     const wiki = { repo: 'owner/wiki', branch: 'main', token: 'bad-token', pollSeconds: 3600, atlasFolder: 'Atlas' };
     const readOnly = await setTable({ wiki }, { wikiBackend: new GitHubBackend({ ...wiki, apiBase }) });

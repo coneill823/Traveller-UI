@@ -168,7 +168,12 @@ export class GitHubBackend implements WikiBackend {
       let message = `GitHub answered ${res.status}`;
       if (res.status === 401) message = 'GitHub rejected the access token (401). Check WIKI_TOKEN.';
       else if (res.status === 403) message = 'GitHub refused the request (403). The token may lack "Contents: read and write" on the wiki repository, or the rate limit was hit.';
-      else if (res.status === 404) message = `GitHub could not find ${this.opts.repo} or its "${this.opts.branch}" branch (404). Check WIKI_REPO, WIKI_BRANCH and that the token can see the repository.`;
+      else if (res.status === 404) {
+        // GitHub answers "not found" for a private repository it will not show, so say which case this is
+        message = this.opts.token
+          ? `GitHub could not find ${this.opts.repo} or its "${this.opts.branch}" branch (404). The access token was accepted but cannot see that repository: on GitHub, give the token access to ${this.opts.repo} with "Contents: read and write". If the token already has that, check WIKI_REPO and WIKI_BRANCH.`
+          : `GitHub could not find ${this.opts.repo} or its "${this.opts.branch}" branch (404). No access token is set, and without one GitHub shows only public repositories: put a token that can see ${this.opts.repo} in WIKI_TOKEN. If the repository is public, check WIKI_REPO and WIKI_BRANCH.`;
+      }
       else if (detail) message += `: ${detail.slice(0, 200)}`;
       throw new GitHubError(message, res.status);
     }
