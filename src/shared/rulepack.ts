@@ -9,6 +9,27 @@ export interface PackMeta {
   name: string;
   version?: string;
   note?: string;
+  /** Packs this one is layered over, by id. Without it packs layer in the order of their folder names. */
+  after?: string[];
+}
+
+/**
+ * The order in which packs are layered: as given (folder by folder, by name), except that a pack which
+ * names others in `after` is moved to come after them. Names of packs that are not installed are ignored,
+ * and packs that name each other in a circle keep their given order.
+ */
+export function packOrder<T extends { id: string; after?: string[] }>(packs: T[]): T[] {
+  const present = new Set(packs.map((p) => p.id));
+  const placed = new Set<string>();
+  const out: T[] = [];
+  const waiting = [...packs];
+  while (waiting.length) {
+    const next = waiting.findIndex((p) => (p.after ?? []).every((id) => id === p.id || !present.has(id) || placed.has(id)));
+    const [pack] = waiting.splice(next < 0 ? 0 : next, 1);
+    out.push(pack);
+    placed.add(pack.id);
+  }
+  return out;
 }
 
 export interface DiceFormula {
@@ -359,12 +380,51 @@ export interface SpeciesDef {
   weapons?: { name: string; skill: string; damage: string; range: WeaponRange }[];
 }
 
+/** A ready-made bundle of skills and benefits for creating a character quickly: an upbringing or a whole career. */
+export interface CharacterPackage {
+  id: string;
+  kind: 'background' | 'career';
+  name: string;
+  /** Changes to characteristics. */
+  mods?: Record<string, number>;
+  /** Skills given and their levels. A name such as "Science (any)" or "Blade or Staff" is for the player to settle. */
+  skills: Record<string, number>;
+  credits?: number;
+  /** For a career: the rank left with. */
+  rank?: string;
+  /** Whatever else comes with it, in words: gear, contacts, titles. */
+  benefits?: string[];
+  note?: string;
+  source?: string;
+}
+
+/** How packages are applied. Every figure is the pack's; without one, that limit or change is not made. */
+export interface PackageRules {
+  /** The highest level that stacking packages can bring a skill to. */
+  skillCap?: number;
+  /** Bounds that a package's changes cannot push a characteristic beyond. */
+  charMin?: number;
+  charMax?: number;
+  /** The age a character has reached once a background is taken. */
+  backgroundAge?: number;
+  /** Years a career adds, as a formula ("3D"), and the length of a term for turning them into terms. */
+  careerYears?: string;
+  termYears?: number;
+}
+
 export interface CharacterRules {
-  characteristics: { id: string; name: string; physical: boolean; optional?: boolean }[];
+  /**
+   * The characteristics, in the order a sheet shows them. Optional ones are on a sheet only once added to it;
+   * `start` is the score one is added with: a number, or the id of another characteristic to copy (7 when absent).
+   */
+  characteristics: { id: string; name: string; physical: boolean; optional?: boolean; start?: number | string; note?: string }[];
   maxUnaugmented: number;
   skills: SkillDef[];
   species: SpeciesDef[];
   careers: string[];
+  /** Quick-creation packages, where a pack carries any. */
+  packages?: CharacterPackage[];
+  packageRules?: PackageRules;
   encumbrance: { note: string; overloadDm: number; overloadMultiple: number; wornArmourFraction: number };
   damageOrder: { first: string; then: string[] };
 }
@@ -1215,9 +1275,38 @@ export interface SpaceRules {
   dogfight?: { note: string };
 }
 
+/** A table of the rules reference. With a `roll`, the first heading is for the result and each row says which results it covers. */
+export interface ReferenceTable {
+  id: string;
+  title?: string;
+  /** How to roll on it: "2D", "1D", "D66", "D3", with "+ DM" where the situation modifies it. */
+  roll?: string;
+  columns: string[];
+  rows: { /** The results this row covers: "7", "3-4", "11+", "2-". */ on?: string; cells: string[] }[];
+  note?: string;
+}
+
+/** A topic of the rules reference: a rule in a few paragraphs, with any tables that go with it. */
+export interface ReferenceTopic {
+  id: string;
+  title: string;
+  /** The heading it is filed under. */
+  group: string;
+  source?: string;
+  /** An optional rule, to be used only where the referee has taken it up. */
+  optional?: boolean;
+  text?: string[];
+  tables?: ReferenceTable[];
+}
+
+export interface ReferenceRules {
+  topics: ReferenceTopic[];
+}
+
 export interface RulePack {
   packs: PackMeta[];
   world?: WorldRules;
+  reference?: ReferenceRules;
   tasks?: TaskRules;
   characters?: CharacterRules;
   gear?: GearRules;

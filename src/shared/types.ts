@@ -418,7 +418,8 @@ export interface WikiPage extends EntityBase {
 
 // ──────────────────────────────── characters ────────────────────────────────
 
-export type CharKey = 'STR' | 'DEX' | 'END' | 'INT' | 'EDU' | 'SOC' | 'PSI';
+/** A characteristic's id: STR, DEX, END, INT, EDU, SOC, PSI, or any other that a rules pack lists (Luck, Morale and so on). */
+export type CharKey = string;
 
 export interface CharScore {
   /** Current value, after damage. */

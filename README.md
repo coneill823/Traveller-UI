@@ -12,14 +12,14 @@ every other screen updates within a moment.
 | Screen | What it does |
 | --- | --- |
 | **Map** | The universe in the classic hex style, zooming from universe to sector, subsector, system and world. Add and place sectors, roll or place systems, draw routes, import from generators. Detailed surveys that work out every star, world and moon of a system. Route planner for jump rating, fuel, refuelling and travel zones. |
-| **Crew** | Character sheets for travellers, NPCs and creatures: characteristics, skills, weapons and armour, with one-click checks, attacks and damage. Rolls can be made in the app or typed in from the table. |
+| **Crew** | Character sheets for travellers, NPCs and creatures: characteristics, skills, weapons and armour, with one-click checks, attacks and damage. Rolls can be made in the app or typed in from the table. Ready-made backgrounds and careers for creating someone quickly, where the rules packs carry them. |
 | **Combat** | Encounters with the opposition in initiative order along the top and the party along the bottom, an uploadable battlemap with draggable tokens, turns put together on an action bar and published to everyone as an animated replay. |
 | **Cargo** | Personal kit, ship's lockers and cargo holds for any number of people and ships; search, move things between holders, pay from personal credits or the ship's account. A catalogue of everything the rules packs list, with how hard each thing is to find on the world you are on. |
 | **Trade** | What is for sale here, on the world or in orbit, and around the system. Broker negotiations, freight, passengers, and trade leads about other systems that the GM hands out one at a time. |
 | **Ship** | The ship's status board: damage and faults flash on the hull plan, with systems, alerts and crew stations. Battle stations for space combat, where each crew member queues their station's actions and the ship acts as one. |
 | **Yard** | Ship design: start from a stock design or a bare hull, drag parts onto a hologram of the hull, see tonnage, power, cost and crew as you go, show the draft to the party, collect sign-off and commission it at the starport you are docked at. |
 | **Goals** | Objectives for the party and private ones per player, tied to places on the map. |
-| **Library** | Every page of the Chronicler wiki, revealed to players section by section. |
+| **Library** | Every page of the Chronicler wiki, revealed to players section by section. Beside it, a rules reference: summaries and tables from the installed rules packs, with the tables rolled on from the page. |
 | **Control** (GM) | Players and invite links, the campaign date, backups, wiki settings. |
 
 Across all of it:
@@ -157,6 +157,17 @@ Subsector-sized data (hexes 0101–0810) can be dropped into any of a sector's s
 - The mainworld keeps its record through a survey, with its notes and everything placed on it. **Survey again** rolls a different system; **Rebuild from survey** goes back to the plain chart.
 - Players who have had the system charted keep what the chart showed them. The other worlds and the moons stay hidden until you reveal them one at a time, or all together with **Share the full survey**.
 - New systems rolled on the map take their stars, and their counts of gas giants, belts and worlds, from the same tables.
+
+### Characters
+
+- **Edit** on a sheet changes the numbers. Characteristics follow the installed rules packs: besides the usual six, a pack may list optional ones (psionic strength, luck, morale and so on). In editing, **Add** puts one on a sheet and the small cross on its tile takes it off again; once there it is rolled like any other.
+- **Quick creation**, on the **Background** tab while editing, lists the ready-made backgrounds and careers that the packs carry. Choosing one shows what it changes before you take it: characteristics, each skill with the level the sheet will end up with, money, rank and the rest. Skills named loosely ("any science") can be settled there. Taking it puts the lot on the sheet, adds the career and the years, and writes gear and contacts into the private notes. Packages stack, within the limits the pack sets.
+
+### The rules reference
+
+- The **Library** has a **Rules** tab when an installed pack carries reference topics: rules summarised in a few paragraphs, filed under headings, with their tables. Optional rules are marked as such, and each topic names the book it comes from.
+- A table that is rolled on has a **Roll** button. The dice are the shared dice, so everyone sees them, and the row they land on lights up. Where a roll takes a modifier, type it in the box beside the button first.
+- The search box looks through titles, text and tables.
 
 ### Combat
 

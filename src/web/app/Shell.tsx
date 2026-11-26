@@ -220,7 +220,7 @@ export function Shell() {
       content = <ObjectivesPage />;
       break;
     case 'library':
-      content = <LibraryPage pageId={route.parts[1]} />;
+      content = route.parts[1] === 'rules' ? <LibraryPage topicId={route.parts[2] ?? ''} /> : <LibraryPage pageId={route.parts[1]} />;
       break;
     case 'control':
       content = gm ? <ControlRoom /> : <MapPage />;

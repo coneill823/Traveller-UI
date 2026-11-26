@@ -16,6 +16,7 @@ import { Icon } from '../../ui/Icon';
 import { KnowledgeBadge, KnowledgeControl } from '../../ui/Knowledge';
 import { Markdown } from '../../ui/Markdown';
 import { Notes } from '../../ui/Notes';
+import { PackagePicker } from './Packages';
 import { AttackDialog, CheckDialog, DiceModeSwitch, quickCheck, useRollPrefs, type CheckRequest } from './rolling';
 
 const CHAR_ORDER: CharKey[] = ['STR', 'DEX', 'END', 'INT', 'EDU', 'SOC', 'PSI'];
@@ -414,7 +415,7 @@ export function Sheet({ c }: { c: Character }) {
   const [editing, setEditing] = useState(false);
   const [check, setCheck] = useState<CheckRequest | null>(null);
   const [attack, setAttack] = useState<CharacterWeapon | null>(null);
-  const [dialog, setDialog] = useState<'damage' | 'weapon' | 'armour' | null>(null);
+  const [dialog, setDialog] = useState<'damage' | 'weapon' | 'armour' | 'package' | null>(null);
   const [tab, setTab] = useState<'actions' | 'background' | 'notes'>('actions');
   const [skillFilter, setSkillFilter] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -423,7 +424,17 @@ export function Sheet({ c }: { c: Character }) {
   const status = healthStatus(c);
   const known = c.chars !== undefined;
   const charDefs = pack.characters?.characteristics;
-  const keys = CHAR_ORDER.filter((k) => c.chars?.[k] || (edit && k !== 'PSI'));
+  // the pack's order, and after it anything the sheet carries that the pack does not list
+  const listed = charDefs?.map((d) => d.id) ?? CHAR_ORDER;
+  const order = [...listed, ...Object.keys(c.chars ?? {}).filter((k) => !listed.includes(k))];
+  const optional = (k: CharKey) => (charDefs ? !!charDefs.find((d) => d.id === k)?.optional : k === 'PSI');
+  const keys = order.filter((k) => c.chars?.[k] || (edit && !optional(k)));
+  const addable = edit ? order.filter((k) => optional(k) && !c.chars?.[k]) : [];
+  const addChar = (key: CharKey) => {
+    const start = charDefs?.find((d) => d.id === key)?.start;
+    const n = typeof start === 'number' ? start : typeof start === 'string' ? (c.chars?.[start]?.max ?? 7) : 7;
+    void setFields(c.id, { [`chars.${key}`]: { value: n, max: n } });
+  };
   const skills = useMemo(() => Object.entries(c.skills ?? {}).sort((a, b) => a[0].localeCompare(b[0])), [c.skills]);
   const shownSkills = skills.filter(([name]) => !skillFilter.trim() || name.toLowerCase().includes(skillFilter.trim().toLowerCase()));
   const protection = wornProtection(c);
@@ -553,7 +564,14 @@ export function Sheet({ c }: { c: Character }) {
                 const name = charDefs?.find((d) => d.id === k)?.name ?? k;
                 return edit ? (
                   <div key={k} className="char-tile editing">
-                    <span className="char-key">{k}</span>
+                    <span className="char-key" title={name}>
+                      {k}
+                    </span>
+                    {optional(k) && (
+                      <button className="char-remove" onClick={() => void setFields(c.id, { [`chars.${k}`]: undefined })} title={`Take ${name} off this sheet`} aria-label={`Remove ${name}`}>
+                        <Icon name="x" size={10} />
+                      </button>
+                    )}
                     <label className="tiny faint">
                       now
                       <input className="input mono" type="number" min={0} value={s.value} onChange={(e) => setChar(k, 'value', Number(e.target.value))} aria-label={`${name} current`} />
@@ -573,10 +591,17 @@ export function Sheet({ c }: { c: Character }) {
                 );
               })}
             </div>
-            {edit && !c.chars?.PSI && (
-              <button className="btn sm ghost" onClick={() => void setFields(c.id, { 'chars.PSI': { value: 7, max: 7 } })}>
-                <Icon name="plus" size={12} /> Add PSI
-              </button>
+            {addable.length > 0 && (
+              <div className="row wrap" style={{ gap: 4 }}>
+                {addable.map((k) => {
+                  const def = charDefs?.find((d) => d.id === k);
+                  return (
+                    <button key={k} className="btn sm ghost" onClick={() => addChar(k)} title={[def?.name, def?.note].filter(Boolean).join(': ') || undefined}>
+                      <Icon name="plus" size={12} /> Add {k}
+                    </button>
+                  );
+                })}
+              </div>
             )}
 
             <h3 style={{ marginTop: 16 }}>Armour</h3>
@@ -819,9 +844,16 @@ export function Sheet({ c }: { c: Character }) {
                 <div className="section-title">
                   <h3>Careers</h3>
                   {edit && (
-                    <button className="btn sm" onClick={() => void patch(c.id, [{ op: 'push', path: ['careers'], value: { name: pack.characters?.careers[0] ?? 'Drifter', terms: 1 } }])}>
-                      <Icon name="plus" size={12} /> Career
-                    </button>
+                    <div className="row" style={{ gap: 6 }}>
+                      {(pack.characters?.packages?.length ?? 0) > 0 && (
+                        <button className="btn sm" onClick={() => setDialog('package')} title="Take a ready-made background or career: its skills, changes and benefits go onto the sheet">
+                          <Icon name="sparkles" size={12} /> Quick creation
+                        </button>
+                      )}
+                      <button className="btn sm" onClick={() => void patch(c.id, [{ op: 'push', path: ['careers'], value: { name: pack.characters?.careers[0] ?? 'Drifter', terms: 1 } }])}>
+                        <Icon name="plus" size={12} /> Career
+                      </button>
+                    </div>
                   )}
                 </div>
                 {(c.careers ?? []).map((career, i) =>
@@ -905,6 +937,7 @@ export function Sheet({ c }: { c: Character }) {
       {dialog === 'damage' && <DamageDialog c={c} onClose={() => setDialog(null)} />}
       {dialog === 'weapon' && <WeaponPicker c={c} onClose={() => setDialog(null)} />}
       {dialog === 'armour' && <ArmourPicker c={c} onClose={() => setDialog(null)} />}
+      {dialog === 'package' && <PackagePicker c={c} onClose={() => setDialog(null)} />}
     </div>
   );
 }

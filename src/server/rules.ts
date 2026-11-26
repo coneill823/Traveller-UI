@@ -1,7 +1,7 @@
 /** Loads rules packs from disk and layers them into the single pack the engines use. */
 import fs from 'node:fs';
 import path from 'node:path';
-import { EMPTY_PACK, mergePacks, type PackMeta, type RulePack } from '../shared/rulepack';
+import { EMPTY_PACK, mergePacks, packOrder, type PackMeta, type RulePack } from '../shared/rulepack';
 
 export class RulesService {
   pack: RulePack = EMPTY_PACK;
@@ -16,7 +16,8 @@ export class RulesService {
   }
 
   reload(): void {
-    let pack: RulePack = { packs: [] };
+    // every pack folder of every directory, in the order given, then rearranged so that each pack follows those it layers over
+    const found: { id: string; after?: string[]; folder: string; full: string; meta: PackMeta }[] = [];
     for (const dir of this.dirs) {
       if (!fs.existsSync(dir)) continue;
       const folders = fs
@@ -30,16 +31,24 @@ export class RulesService {
         if (!fs.existsSync(metaFile)) continue;
         try {
           const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as PackMeta;
-          const sections: Record<string, unknown> = {};
-          for (const file of fs.readdirSync(full).sort()) {
-            if (!file.endsWith('.json') || file === 'pack.json') continue;
-            sections[path.basename(file, '.json')] = JSON.parse(fs.readFileSync(path.join(full, file), 'utf8'));
-          }
-          pack = mergePacks(pack, { packs: [], ...sections } as RulePack);
-          pack.packs = [...pack.packs, { ...meta, id: meta.id ?? folder }];
+          found.push({ id: meta.id ?? folder, after: Array.isArray(meta.after) ? meta.after : undefined, folder, full, meta });
         } catch (err) {
           console.error(`[rules] Skipping pack "${folder}": ${(err as Error).message}`);
         }
+      }
+    }
+    let pack: RulePack = { packs: [] };
+    for (const { id, folder, full, meta } of packOrder(found)) {
+      try {
+        const sections: Record<string, unknown> = {};
+        for (const file of fs.readdirSync(full).sort()) {
+          if (!file.endsWith('.json') || file === 'pack.json') continue;
+          sections[path.basename(file, '.json')] = JSON.parse(fs.readFileSync(path.join(full, file), 'utf8'));
+        }
+        pack = mergePacks(pack, { packs: [], ...sections } as RulePack);
+        pack.packs = [...pack.packs, { ...meta, id }];
+      } catch (err) {
+        console.error(`[rules] Skipping pack "${folder}": ${(err as Error).message}`);
       }
     }
     this.pack = pack;

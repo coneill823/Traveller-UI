@@ -15,6 +15,9 @@ belong somewhere private: either drop pack folders in here on the machine that r
 - Packs are layered: first the folders here in alphabetical order, then those in the wiki vault.
   A later pack only needs to list what it adds or changes. Lists whose rows carry an `id` or a
   `code` are merged row by row on that key; other lists are replaced whole.
+- A pack that must come after another, whatever the folders are called, names it in `pack.json`:
+  `"after": ["the-other-pack-id"]`. It is then layered straight after the packs it names. Names of
+  packs that are not installed are ignored.
 - To add house rules or a supplement, create a new folder (for example `zz-house-rules`) with a
   `pack.json` and only the sections you want to override.
 
@@ -24,15 +27,68 @@ belong somewhere private: either drop pack folders in here on the machine that r
 | --- | --- | --- |
 | `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation; under `system`, the tables for building a whole star system; under `detail`, those for working each of its worlds out; under `society`, those for the people of a world |
 | `tasks.json` | `tasks` | Difficulties, effect bands, characteristic modifiers |
-| `characters.json` | `characters` | Characteristics, skills and specialities, species, careers |
+| `characters.json` | `characters` | Characteristics (optional ones included), skills and specialities, species, careers, quick-creation packages |
 | `gear.json` | `gear` | Personal weapons, armour and weapon traits; other equipment, special ammunition, and the rules for finding and buying things |
 | `combat.json` | `combat` | Personal combat: actions, range bands, modifiers, cover, damage |
 | `trade.json` | `trade` | Trade goods, price table, passengers, freight |
 | `ships.json` | `ships` | Hulls, armour, drives, power plants, bridges, computers, sensors, software, weapons and mounts, fittings, crew, shipyards and stock designs |
 | `space.json` | `space` | Space combat: range bands, crew duties and their actions, attack modifiers, critical hit locations and effects, missiles |
+| `reference.json` | `reference` | Rule summaries and tables for the Library's Rules tab |
 
 The exact shape of every section is documented by the TypeScript types in
 `src/shared/rulepack.ts`. A section that is missing simply switches off the features that need it.
+
+## Characters
+
+- `characteristics` lists them in the order a sheet shows them. One marked `"optional": true` is on
+  a sheet only once it has been added there. `start` is the score it is added with: a number, or the
+  id of another characteristic to copy; without it, 7. `note` is shown as a hint.
+- `skills` and `careers` have no ids, so a pack that adds to either gives the whole list.
+- `packages` are ready-made backgrounds and careers:
+
+  ```json
+  { "id": "islander", "kind": "background", "name": "Islander",
+    "mods": { "STR": 1, "EDU": -1 },
+    "skills": { "Sailing": 1, "Fishing": 0, "Ropework (any)": 1 },
+    "credits": 150, "benefits": ["A boat"], "note": "Grew up on the water" }
+  ```
+
+  `kind` is `background` or `career`; a career may give a `rank`. A skill named loosely (with "any",
+  "another", "suitable" or "or" in it) is offered to the player to settle.
+- `packageRules` holds every figure for applying them: `skillCap` (how high stacking can take a
+  skill), `charMin` and `charMax` (bounds on characteristic changes), `backgroundAge` (the age a
+  background brings a character to), `careerYears` (a formula for the years a career adds) and
+  `termYears` (for counting those years as terms). Leave one out and that limit or change is not made.
+
+## The rules reference
+
+`reference.json` holds `{ "topics": [...] }`. Topics are merged by `id`, so several packs can add to
+the list and one can rewrite another's topic.
+
+```json
+{ "id": "house-weather", "title": "Weather at sea", "group": "Voyages",
+  "source": "House rules", "optional": true,
+  "text": ["Roll each morning.", "A storm doubles the time a crossing takes."],
+  "tables": [
+    { "id": "sky", "title": "The sky", "roll": "2D + DM",
+      "columns": ["2D", "Sky", "Wind"],
+      "rows": [
+        { "on": "4-",   "cells": ["Storm", "Gale"] },
+        { "on": "5-8",  "cells": ["Cloud", "Fresh"] },
+        { "on": "9-11", "cells": ["Fair", "Light"] },
+        { "on": "12+",  "cells": ["Dead calm", "None"] } ] },
+    { "id": "stores", "columns": ["Store", "Lasts"],
+      "rows": [ { "cells": ["Biscuit", "A year"] }, { "cells": ["Fruit", "A week"] } ] } ] }
+```
+
+- `group` is the heading the topic is filed under. `text` is a list of paragraphs.
+- A table with a `roll` can be rolled on from the page. The roll is on six-sided dice: `2D`, `1D`,
+  `3D - 2`, `D3`, `D66`, with `+ DM` where a modifier from the situation is added. The first heading
+  is then the roll's, and each row says in `on` which results it covers: `7`, `3-4`, `11+`, `2-`
+  (2 or less), or several separated by commas. Each row has one cell fewer than there are headings.
+- Every result the dice alone can give must land on exactly one row. The tests check this for the
+  installed packs.
+- A table without a `roll` is a plain table: one cell for each heading, and no `on`.
 
 ## Star systems and formulas
 

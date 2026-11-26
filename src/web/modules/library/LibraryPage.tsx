@@ -11,6 +11,7 @@ import { cx, Empty } from '../../ui/basics';
 import { Icon } from '../../ui/Icon';
 import { AudiencePicker } from '../../ui/Knowledge';
 import { Markdown } from '../../ui/Markdown';
+import { RulesEmpty, RulesList, RulesTopic, useReference } from './Rules';
 import { entityName, entityPath, linkedEntity, revealState, useWikiStatus } from './wiki';
 
 const HIDDEN_KEYS = new Set(['ref', 'layout', 'image', 'tags', 'players', 'title', 'subtitle', 'infobox']);
@@ -137,11 +138,13 @@ function PageView({ page }: { page: WikiPage }) {
   );
 }
 
-export function LibraryPage({ pageId }: { pageId?: string }) {
+export function LibraryPage({ pageId, topicId }: { pageId?: string; /** Set (if only to nothing) when the rules reference is open rather than the wiki. */ topicId?: string }) {
   const gm = useIsGm();
   const pages = useType('wikiPage');
   const status = useWikiStatus();
   const [q, setQ] = useState('');
+  const rules = topicId !== undefined;
+  const reference = useReference(rules ? q : '');
   const [filter, setFilter] = useState<'all' | 'hidden' | 'revealed'>('all');
 
   const groups = useMemo(() => {
@@ -163,11 +166,21 @@ export function LibraryPage({ pageId }: { pageId?: string }) {
   return (
     <div className="library">
       <aside className="library-list">
+        {reference.topics.length > 0 && (
+          <div className="segmented" style={{ display: 'flex', margin: '10px 10px 0' }}>
+            <button className={cx(!rules && 'on')} style={{ flex: 1 }} onClick={() => navigate('/library')}>
+              Wiki
+            </button>
+            <button className={cx(rules && 'on')} style={{ flex: 1 }} onClick={() => navigate('/library/rules')}>
+              Rules
+            </button>
+          </div>
+        )}
         <div className="library-search">
           <Icon name="search" size={14} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the library…" aria-label="Search the library" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={rules ? 'Search the rules…' : 'Search the library…'} aria-label={rules ? 'Search the rules' : 'Search the library'} />
         </div>
-        {gm && (
+        {gm && !rules && (
           <div className="segmented gm" style={{ display: 'flex', margin: '0 10px 8px' }}>
             {(['all', 'hidden', 'revealed'] as const).map((f) => (
               <button key={f} className={cx(filter === f && 'on')} style={{ flex: 1 }} onClick={() => setFilter(f)}>
@@ -177,7 +190,9 @@ export function LibraryPage({ pageId }: { pageId?: string }) {
           </div>
         )}
         <div className="library-pages">
-          {groups.map((g) => (
+          {rules && <RulesList groups={reference.groups} topicId={topicId} />}
+          {rules && reference.groups.length === 0 && <div className="pad faint small">No topics match.</div>}
+          {!rules && groups.map((g) => (
             <div key={g.folder}>
               {g.folder && <div className="library-folder">{g.folder}</div>}
               {g.items.map((p) => {
@@ -192,10 +207,10 @@ export function LibraryPage({ pageId }: { pageId?: string }) {
               })}
             </div>
           ))}
-          {pages.length === 0 && <div className="pad faint small">{gm ? 'No wiki pages yet.' : 'Nothing has been shared with you yet.'}</div>}
-          {pages.length > 0 && groups.length === 0 && <div className="pad faint small">No pages match.</div>}
+          {!rules && pages.length === 0 && <div className="pad faint small">{gm ? 'No wiki pages yet.' : 'Nothing has been shared with you yet.'}</div>}
+          {!rules && pages.length > 0 && groups.length === 0 && <div className="pad faint small">No pages match.</div>}
         </div>
-        {gm && status && (
+        {gm && status && !rules && (
           <div className="library-status">
             {status.configured ? (
               <>
@@ -214,7 +229,13 @@ export function LibraryPage({ pageId }: { pageId?: string }) {
         )}
       </aside>
       <div className="library-main">
-        {current ? (
+        {rules ? (
+          reference.topics.find((t) => t.id === topicId) ? (
+            <RulesTopic key={topicId} topic={reference.topics.find((t) => t.id === topicId)!} />
+          ) : (
+            <RulesEmpty any={reference.topics.length > 0} />
+          )
+        ) : current ? (
           <PageView page={current} />
         ) : (
           <Empty icon="book" title={pageId ? 'That page is not available' : 'Library'}>

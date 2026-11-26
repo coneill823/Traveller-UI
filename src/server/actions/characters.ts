@@ -2,13 +2,20 @@
 import type { RulePack } from '../../shared/rulepack';
 import { applyDamage, attackDm, checkDm, defaultChar, hasTrait, isMelee, parseDamage, rollWeaponDamage, traitValue, type DamageResult } from '../../shared/rules/character';
 import { loadedWeapon } from '../../shared/rules/gear';
+import { applyPackage, needsChoice } from '../../shared/rules/packages';
 import type { CharKey, Character, CharScore, Id } from '../../shared/types';
 import { newId } from '../../shared/util';
 import { applyPreset, checkAudience, makeRoll, rollOptions } from './core';
 import type { Tx } from '../state';
 import { action, ActionError, check, type ActionCtx } from './registry';
 
-const CHAR_KEYS: readonly CharKey[] = ['STR', 'DEX', 'END', 'INT', 'EDU', 'SOC', 'PSI'];
+const CORE_KEYS: readonly CharKey[] = ['STR', 'DEX', 'END', 'INT', 'EDU', 'SOC', 'PSI'];
+
+/** The characteristics a check may be made on: those the installed rules list, and always the usual seven. */
+function charKeys(ctx: ActionCtx): readonly CharKey[] {
+  const listed = ctx.services.rules.pack.characters?.characteristics.map((c) => c.id) ?? [];
+  return [...new Set([...CORE_KEYS, ...listed])];
+}
 
 /** The character, if the caller may act for it: its owner or the GM. */
 function controlled(ctx: ActionCtx, id: unknown): Character {
@@ -66,7 +73,7 @@ action('character.check', (ctx, p) => {
   const c = controlled(ctx, p.id);
   const pack = ctx.services.rules.pack;
   const skill = check.optStr(p.skill, 'skill', { max: 80 });
-  let char = p.char === undefined || p.char === null ? undefined : check.oneOf(p.char, 'char', CHAR_KEYS);
+  let char = p.char === undefined || p.char === null ? undefined : check.oneOf(p.char, 'char', charKeys(ctx));
   if (!char && skill) char = defaultChar(skill, pack);
   if (!char && !skill) throw new ActionError('Choose a characteristic or a skill to roll');
   const extra = p.dm === undefined ? 0 : check.int(p.dm, 'dm', { min: -20, max: 20 });
@@ -98,7 +105,7 @@ action('character.attack', (ctx, p) => {
       band: check.optStr(p.band, 'band', { max: 20 }),
       mods,
       extra: p.dm === undefined ? 0 : check.int(p.dm, 'dm', { min: -20, max: 20 }),
-      char: p.char === undefined || p.char === null ? undefined : check.oneOf(p.char, 'char', CHAR_KEYS),
+      char: p.char === undefined || p.char === null ? undefined : check.oneOf(p.char, 'char', charKeys(ctx)),
     },
     pack,
   );
@@ -184,13 +191,39 @@ action('character.damage', (ctx, p) => {
   return { taken: result.taken, absorbed: result.absorbed, status: result.status, stunnedRounds: result.stunnedRounds };
 });
 
+/** Takes a quick-creation package: its characteristic changes, skills, money and the rest go onto the sheet. */
+action('character.applyPackage', (ctx, p) => {
+  const c = controlled(ctx, p.id);
+  const rules = ctx.services.rules.pack.characters;
+  const pkg = rules?.packages?.find((x) => x.id === check.str(p.packageId, 'packageId', { max: 80 }));
+  if (!pkg) throw new ActionError('That package is not in the installed rules');
+  const choices: Record<string, string> = {};
+  if (p.choices && typeof p.choices === 'object') {
+    // only a skill the package names loosely is open to choice
+    for (const listed of Object.keys(pkg.skills).filter(needsChoice)) {
+      const chosen = (p.choices as Record<string, unknown>)[listed];
+      if (typeof chosen === 'string' && chosen.trim()) choices[listed] = check.str(chosen, 'choices', { max: 80 }).trim();
+    }
+  }
+  const outcome = applyPackage(c, pkg, rules?.packageRules, choices);
+  ctx.tx.update<Character>(c.id, (draft) => {
+    draft.chars = outcome.chars;
+    draft.skills = outcome.skills;
+    draft.credits = outcome.credits;
+    if (outcome.age !== undefined) draft.age = outcome.age;
+    if (outcome.career) draft.careers = [...(draft.careers ?? []), outcome.career];
+    if (outcome.note) draft.secrets = [draft.secrets, outcome.note].filter(Boolean).join('\n\n');
+  });
+  return { name: pkg.name, age: outcome.age, note: outcome.note };
+});
+
 action('character.heal', (ctx, p) => {
   const c = controlled(ctx, p.id);
   const amount = p.full ? Infinity : check.int(p.amount, 'amount', { min: 0, max: 1000 });
   let left = amount;
   ctx.tx.update<Character>(c.id, (draft) => {
     // Healing restores in the reverse order damage is taken: STR and DEX first, END last.
-    for (const key of (p.char ? [check.oneOf(p.char, 'char', CHAR_KEYS)] : (['STR', 'DEX', 'END'] as CharKey[]))) {
+    for (const key of (p.char ? [check.oneOf(p.char, 'char', charKeys(ctx))] : (['STR', 'DEX', 'END'] as CharKey[]))) {
       const score = draft.chars?.[key];
       if (!score) continue;
       const gain = Math.min(left, score.max - score.value);
