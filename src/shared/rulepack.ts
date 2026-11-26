@@ -535,7 +535,8 @@ export interface GearRules {
   /** What can be wrong with a prototype: roll one die. */
   quirks?: string[];
   /** Short rules to keep at hand when shopping. */
-  reference?: { title: string; text: string }[];
+  /** Notes to keep to hand when buying. Give each an `id` so that another pack can add to the list rather than replace it. */
+  reference?: { id?: string; title: string; text: string }[];
 }
 
 export interface CombatRules {
