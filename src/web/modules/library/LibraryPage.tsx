@@ -150,7 +150,7 @@ export function LibraryPage({ pageId, topicId }: { pageId?: string; /** Set (if 
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = pages
-      .filter((p) => !needle || p.title.toLowerCase().includes(needle) || p.tags.some((t) => t.toLowerCase().includes(needle)) || p.sections.some((s) => s.body.toLowerCase().includes(needle)))
+      .filter((p) => !needle || p.title.toLowerCase().includes(needle) || p.tags.some((t) => t.toLowerCase().includes(needle)) || p.sections.some((s) => s.heading.toLowerCase().includes(needle) || s.body.toLowerCase().includes(needle)))
       .filter((p) => !gm || filter === 'all' || (filter === 'hidden' ? revealState(p) === 'hidden' : revealState(p) !== 'hidden'));
     // The GM browses by vault folder; players get one alphabetical list (folder names can give things away).
     const byFolder = new Map<string, WikiPage[]>();
