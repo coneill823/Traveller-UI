@@ -9,7 +9,6 @@ import { effectiveThrust, locationApplies, locationName, missileFlight, partsAt,
 import type { SpaceRules } from '../../shared/rulepack';
 import type { Battle, BattleRecord, BattleResult, BattleShip, BattleStepId, Character, CombatSide, CrewAction, Id, Ship, ShipAlert } from '../../shared/types';
 import { deepClone, newId, rollDice, sum } from '../../shared/util';
-import type { Tx } from '../state';
 import { applyPreset, checkAudience } from './core';
 import { action, ActionError, check, requireGm, type ActionCtx } from './registry';
 

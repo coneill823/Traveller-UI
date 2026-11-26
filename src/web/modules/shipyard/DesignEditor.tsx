@@ -14,7 +14,6 @@ import {
   PART_GROUPS,
   yardAt,
   yardIssues,
-  type CatalogueEntry,
   type DesignIssue,
   type DesignReport,
   type Yard,

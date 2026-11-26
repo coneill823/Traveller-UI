@@ -178,7 +178,13 @@ export function ShipBoard({ ship }: { ship: Ship }) {
             </div>
           </div>
 
-          {rules && <SystemsBoard ship={ship} rules={rules} onFault={gm ? (location) => setDialog({ fault: location }) : undefined} />}
+          {rules ? (
+            <SystemsBoard ship={ship} rules={rules} onFault={gm ? (location) => setDialog({ fault: location }) : undefined} />
+          ) : (
+            <div className="notice warn small">
+              <Icon name="warning" size={14} /> No space combat rules are loaded, so the systems board, crew stations and attack tools are not available. Add a rules pack with a space section (see the README).
+            </div>
+          )}
         </section>
 
         <aside className="col gap-12">

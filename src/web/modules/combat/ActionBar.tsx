@@ -82,7 +82,7 @@ interface Props {
   moveMetres?: number;
 }
 
-function IntBox({ value, onChange, label, width = 56, placeholder }: { value: number | undefined; onChange: (n: number | undefined) => void; label: string; width?: number; placeholder?: string }) {
+function IntBox({ value, onChange, label, width = 66, placeholder }: { value: number | undefined; onChange: (n: number | undefined) => void; label: string; width?: number; placeholder?: string }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
   useEffect(() => setDraft(value === undefined ? '' : String(value)), [value]);
   const commit = () => {

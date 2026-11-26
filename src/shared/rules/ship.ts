@@ -877,7 +877,7 @@ export function fuelTonsFor(rules: ShipRules, report: DesignReport, weeks = rule
 }
 
 /** A new part for a catalogue entry, sized sensibly for the design as it stands. */
-export function defaultPart(rules: ShipRules, spec: ShipSpec, report: DesignReport, entry: { kind: PartKind; key?: string }): DesignPart {
+export function defaultPart(rules: ShipRules, _spec: ShipSpec, report: DesignReport, entry: { kind: PartKind; key?: string }): DesignPart {
   const part: DesignPart = { id: newPartId(), kind: entry.kind, ...(entry.key ? { key: entry.key } : {}) };
   switch (entry.kind) {
     case 'armour':

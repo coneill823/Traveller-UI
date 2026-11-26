@@ -238,6 +238,11 @@ export function BattleView({ battle }: { battle: Battle }) {
         )}
       </header>
 
+      {!rules && (
+        <div className="notice warn small" style={{ margin: '0 16px 10px' }}>
+          <Icon name="warning" size={14} /> No space combat rules are loaded, so range bands, crew actions and critical hits are not available. Add a rules pack with a space section (see the README).
+        </div>
+      )}
       <div className="combat-grid">
         <section className="combat-stage battle-stage">
           <div className="card-row" aria-label="Other ships">
@@ -720,7 +725,7 @@ function CrewPlan({ battle, rules, planShip, ship, flag, plan, stations, freeHan
   );
 }
 
-function IntField({ value, onCommit, label, width = 56, placeholder, disabled }: { value: number | undefined; onCommit: (n: number | undefined) => void; label: string; width?: number; placeholder?: string; disabled?: boolean }) {
+function IntField({ value, onCommit, label, width = 66, placeholder, disabled }: { value: number | undefined; onCommit: (n: number | undefined) => void; label: string; width?: number; placeholder?: string; disabled?: boolean }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
   useEffect(() => setDraft(value === undefined ? '' : String(value)), [value]);
   const commit = () => {

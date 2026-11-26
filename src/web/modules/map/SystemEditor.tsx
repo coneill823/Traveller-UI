@@ -5,7 +5,7 @@ import { generateName } from '../../../shared/names';
 import { decodeUwp, generateWorld, tradeCodesFor } from '../../../shared/rules/world';
 import type { Sector, StarSystem, TravelZone } from '../../../shared/types';
 import { isValidUwp, parseUwp } from '../../../shared/uwp';
-import { act, run } from '../../net';
+import { act } from '../../net';
 import { toast, useRules, useType } from '../../store';
 import { Field, Modal, Segmented } from '../../ui/basics';
 import { Icon } from '../../ui/Icon';

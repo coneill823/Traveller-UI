@@ -9,7 +9,7 @@ import type { TradeGood, TradeRules } from '../../shared/rulepack';
 import { skillLevel, unskilledDm } from '../../shared/rules/character';
 import { freightAvailable, generateStock, negotiate, passageFare, passengersAvailable, type TradeWorld } from '../../shared/rules/trade';
 import { systemTradeCodes } from '../../shared/rules/world';
-import type { Body, Campaign, Character, GameDate, Id, Item, Market, MarketLot, Sector, Ship, StarSystem } from '../../shared/types';
+import type { Body, Campaign, Character, GameDate, Item, Market, MarketLot, Sector, Ship, StarSystem } from '../../shared/types';
 import { parseUwp } from '../../shared/uwp';
 import { newId, rollDice, sum } from '../../shared/util';
 import type { Tx } from '../state';
@@ -42,12 +42,6 @@ export function marketWorld(tx: Tx, market: Pick<Market, 'systemId' | 'bodyId'>,
 
 function systemWorld(system: StarSystem, ctx: ActionCtx): TradeWorld {
   return { codes: systemTradeCodes(system.uwp, system.remarks, ctx.services.rules.pack.world), zone: system.zone ?? '', uwp: parseUwp(system.uwp) };
-}
-
-function goodOf(rules: TradeRules, code: number): TradeGood {
-  const good = rules.goods.find((g) => g.code === code);
-  if (!good) throw new ActionError('That trade good is not in the rules pack');
-  return good;
 }
 
 /** The market, if the caller can see what it sells. */
