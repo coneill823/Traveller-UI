@@ -644,7 +644,14 @@ export interface ShipRules {
   rdrive?: DriveRules;
   plants: PlantDef[];
   power: { basicPct: number };
-  fuel: { plantPct: number; plantMinTons: number; plantWeeks: number; options?: PartOptionDef[] };
+  fuel: {
+    plantPct: number;
+    plantMinTons: number;
+    plantWeeks: number;
+    /** Small craft carry exactly the fuel their plant burns, with no minimum and no rounding up. */
+    smallCraftExact?: boolean;
+    options?: PartOptionDef[];
+  };
   bridge: {
     sizes: { maxHull: number; tons: number }[];
     /** Beyond the table: extra tons for every further `perTons` of hull above `aboveTons`. */

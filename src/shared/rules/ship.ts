@@ -715,7 +715,7 @@ export function evaluateDesign(rules: ShipRules, spec: ShipSpec): DesignReport {
           const weaponCost = weapons.reduce((n, w) => n + w.cost, 0);
           line.detail = [weaponList, ...options.map((o) => o.name), custom.text].filter(Boolean).join(', ');
           line.tons = qty * ((def.tons + sum(options, (o) => o.tonsAdd)) * (turret ? 1 : custom.tonsMult) + extra);
-          line.cost = qty * ((turret ? def.cost + weaponCost * custom.costMult : (def.cost + weaponCost) * custom.costMult) + sum(options, (o) => o.costFlat));
+          line.cost = qty * ((turret ? def.cost + weaponCost * custom.costMult : (def.cost + weaponCost) * custom.costMult) * product(options, (o) => o.costMult) + sum(options, (o) => o.costFlat));
           line.power = qty * (def.power + weapons.reduce((n, w) => n + powerOf(w.power), 0));
           line.hardpoints = qty * (smallCraft ? (def.firmpoints ?? 1) : (def.hardpoints ?? 1));
           gunnersCommercial += qty * (def.gunner ? 1 : (def.gunnersMilitary ?? 0));
@@ -808,14 +808,19 @@ export function evaluateDesign(rules: ShipRules, spec: ShipSpec): DesignReport {
 
   // ── fuel ──
   const perParsec = ((hullTons * (rules.jdrive.fuelPct ?? 0)) / 100) * jumpFuelMult;
-  const perPeriod = (plantStandardTons > 0 ? Math.max(rules.fuel.plantMinTons, ceilSafe((plantStandardTons * rules.fuel.plantPct) / 100)) : 0) + ceilSafe(plantOwnFuel);
+  const exactFuel = smallCraft && !!rules.fuel.smallCraftExact;
+  const plantShare = (plantStandardTons * rules.fuel.plantPct) / 100;
+  const perPeriod = r3((plantStandardTons > 0 ? (exactFuel ? plantShare : Math.max(rules.fuel.plantMinTons, ceilSafe(plantShare))) : 0) + (exactFuel ? plantOwnFuel : ceilSafe(plantOwnFuel)));
   const parsecs = jump > 0 && perParsec > 0 ? Math.max(0, Math.min(jump, Math.floor(r3((fuelTons - perPeriod) / perParsec)))) : 0;
-  const periods = perPeriod > 0 ? Math.max(0, Math.floor(r3((fuelTons - parsecs * perParsec) / perPeriod))) : 0;
-  const weeks = periods * rules.fuel.plantWeeks;
-  if (reaction.fuelPerHour > 0) reaction.hours = Math.max(0, Math.floor(r3(((fuelTons - parsecs * perParsec - Math.min(periods, 1) * perPeriod) / reaction.fuelPerHour) * 10)) / 10);
+  // How long what is left after a full jump keeps the power plant running.
+  const plantHours = perPeriod > 0 ? Math.max(0, r3(((fuelTons - parsecs * perParsec) / perPeriod) * rules.fuel.plantWeeks * 168)) : 0;
+  const weeks = Math.floor(r3(plantHours / 168));
+  const endurance = weeks >= 1 ? `${weeks} weeks of operation` : plantHours >= 48 ? `${Math.floor(plantHours / 24)} days of operation` : `${Math.floor(plantHours)} hours of operation`;
+  const firstPeriod = Math.min(perPeriod, Math.max(0, fuelTons - parsecs * perParsec));
+  if (reaction.fuelPerHour > 0) reaction.hours = Math.max(0, Math.floor(r3(((fuelTons - parsecs * perParsec - firstPeriod) / reaction.fuelPerHour) * 10)) / 10);
   for (const line of lines) {
     if (line.kind !== 'fuel') continue;
-    line.detail = [jump > 0 ? `J-${parsecs}` : '', `${weeks} weeks of operation`, reaction.fuelPerHour > 0 ? `${reaction.hours} hours of reaction thrust` : '', fuelNotes.get(line.partId) ?? ''].filter(Boolean).join(', ');
+    line.detail = [jump > 0 ? `J-${parsecs}` : '', endurance, reaction.fuelPerHour > 0 ? `${reaction.hours} hours of reaction thrust` : '', fuelNotes.get(line.partId) ?? ''].filter(Boolean).join(', ');
   }
 
   // ── what every ship needs ──
@@ -826,7 +831,9 @@ export function evaluateDesign(rules: ShipRules, spec: ShipSpec): DesignReport {
     issues.push({ level, code: `missing-${kind}`, text, kind });
   };
   need('plant', 'error', 'No power plant: nothing aboard will run.');
-  need('bridge', 'error', smallCraft && hullTons <= 50 ? 'No bridge or cockpit.' : 'No bridge.');
+  const selfFlying = spec.parts.some((p) => p.kind === 'software' && rules.software.find((s) => s.id === p.key)?.family === 'virtualCrew');
+  if (!selfFlying) need('bridge', 'error', smallCraft && hullTons <= 50 ? 'No bridge or cockpit.' : 'No bridge.');
+  else if (!seen.bridge) issues.push({ level: 'info', code: 'no-bridge', text: 'No bridge: the ship flies itself on its Virtual Crew software, or is flown remotely.' });
   need('computer', 'error', 'No computer: every ship needs one.');
   if (!seen.rdrive) need('mdrive', 'warn', 'No manoeuvre drive: the ship cannot move under its own power.');
   if (seen.plant) {
@@ -835,8 +842,14 @@ export function evaluateDesign(rules: ShipRules, spec: ShipSpec): DesignReport {
         missing.push('fuel');
         issues.push({ level: 'error', code: 'missing-fuel', kind: 'fuel', text: `No fuel tanks: the power plant needs ${formatTons(perPeriod)} tons for every ${rules.fuel.plantWeeks} weeks.` });
       }
-    } else if (periods === 0 && perPeriod > 0) {
-      issues.push({ level: 'error', code: 'fuel-plant', kind: 'fuel', text: `Not enough fuel to run the power plant for ${rules.fuel.plantWeeks} weeks (${formatTons(perPeriod)} tons needed).` });
+    } else if (perPeriod > 0 && plantHours < rules.fuel.plantWeeks * 168) {
+      // A boat meant for short hops may carry less by design; no fuel at all is a mistake.
+      issues.push({
+        level: plantHours <= 0 ? 'error' : 'info',
+        code: 'fuel-plant',
+        kind: 'fuel',
+        text: plantHours <= 0 ? `No fuel left for the power plant, which burns ${formatTons(perPeriod)} tons every ${rules.fuel.plantWeeks} weeks.` : `Fuel for ${endurance.replace(' of operation', '')} only: the power plant burns ${formatTons(perPeriod)} tons every ${rules.fuel.plantWeeks} weeks.`,
+      });
     }
   }
   if (jump > 0 && seen.fuel && parsecs < jump) {
@@ -863,7 +876,9 @@ export function evaluateDesign(rules: ShipRules, spec: ShipSpec): DesignReport {
     stored,
   };
   if (seen.plant) {
-    if (output < power.basic) {
+    if (output < power.basic && output + aux >= power.basic) {
+      issues.push({ level: 'warn', code: 'power-solar', kind: 'plant', text: `Basic ship systems need ${formatTons(power.basic)} Power; the plant gives ${formatTons(output)}, so the ship leans on its solar collectors and must stay near a star.` });
+    } else if (output < power.basic) {
       issues.push({ level: 'error', code: 'power-basic', kind: 'plant', text: `The power plant gives ${formatTons(output)} Power; basic ship systems alone need ${formatTons(power.basic)}.` });
     } else if (output < power.basic + power.mdrive) {
       issues.push({ level: 'warn', code: 'power-thrust', kind: 'plant', text: `Not enough Power to run basic systems and the manoeuvre drive together (${formatTons(power.basic + power.mdrive)} needed, ${formatTons(output)} available).` });
@@ -1256,7 +1271,8 @@ export function plantTonsFor(rules: ShipRules, report: DesignReport, plantKey: s
 /** Tons of fuel for one full jump and `weeks` of power plant operation. */
 export function fuelTonsFor(rules: ShipRules, report: DesignReport, weeks = rules.fuel.plantWeeks, parsecs = report.jump): number {
   const periods = Math.max(1, Math.ceil(weeks / rules.fuel.plantWeeks));
-  return r3(report.fuel.perParsec * parsecs + Math.max(report.fuel.perPeriod, rules.fuel.plantMinTons) * periods);
+  const perPeriod = report.smallCraft && rules.fuel.smallCraftExact ? report.fuel.perPeriod : Math.max(report.fuel.perPeriod, rules.fuel.plantMinTons);
+  return r3(report.fuel.perParsec * parsecs + perPeriod * periods);
 }
 
 /** A new part for a catalogue entry, sized sensibly for the design as it stands. */
@@ -1277,7 +1293,7 @@ export function defaultPart(rules: ShipRules, _spec: ShipSpec, report: DesignRep
       break;
     }
     case 'fuel':
-      part.tons = Math.max(1, fuelTonsFor(rules, report) - report.fuel.tons);
+      part.tons = Math.max(report.smallCraft && rules.fuel.smallCraftExact ? 0.1 : 1, r3(fuelTonsFor(rules, report) - report.fuel.tons));
       break;
     case 'mount': {
       part.weapons = [];

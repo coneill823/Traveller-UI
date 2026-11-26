@@ -158,6 +158,14 @@ describe('ship design engine', () => {
       expect(r.fuel).toMatchObject({ perPeriod: 60, weeks: 4 });
     });
 
+    it('lets small craft carry just the fuel their plant burns, where the rules say so', () => {
+      const boat = design(40, 'box', [{ kind: 'plant', key: 'reactor', tons: 2 }, { kind: 'fuel', tons: 1 }]);
+      expect(run(boat).fuel).toMatchObject({ perPeriod: 1, weeks: 4 });
+      const frugal = { ...rules, fuel: { ...rules.fuel, smallCraftExact: true } };
+      expect(evaluateDesign(frugal, boat).fuel).toMatchObject({ perPeriod: 0.2, weeks: 20 });
+      expect(evaluateDesign(frugal, design(400, 'box', [{ kind: 'plant', key: 'reactor', tons: 2 }, { kind: 'fuel', tons: 1 }])).fuel.perPeriod).toBe(1);
+    });
+
     it('refuses to jump on a plant that cannot deliver the burst', () => {
       const parts: Omit<DesignPart, 'id'>[] = [{ kind: 'jdrive', rating: 1 }, { kind: 'plant', key: 'burner', tons: 10 }];
       expect(codes(design(200, 'box', parts), 'error')).toContain('plant-jump');
@@ -168,6 +176,23 @@ describe('ship design engine', () => {
       const spec = design(200, 'box', [{ kind: 'fuel', tons: 30, options: ['sponge'] }]);
       expect(line(spec, 'Fuel')).toMatchObject({ tons: 60, cost: 1500, tl: 7 });
       expect(run(spec).fuel.tons).toBe(30);
+    });
+
+    it('counts short endurance in days or hours, and only minds an empty tank', () => {
+      const boat = (fuel: number) => design(40, 'box', [{ kind: 'plant', key: 'burner', tons: 1 }, { kind: 'fuel', tons: fuel }]);
+      expect(line(boat(3), 'Fuel').detail).toBe('2 weeks of operation');
+      expect(line(boat(0.5), 'Fuel').detail).toBe('2 days of operation');
+      expect(line(boat(0.1), 'Fuel').detail).toBe('11 hours of operation');
+      expect(codes(boat(0.5), 'error')).toEqual([]);
+      expect(codes(boat(0.5), 'info')).toContain('fuel-plant');
+      expect(codes(boat(0), 'error')).toEqual(['fuel-plant']);
+    });
+
+    it('lets a ship lean on its solar collectors for basic power', () => {
+      const parts: Omit<DesignPart, 'id'>[] = [{ kind: 'plant', key: 'reactor', tons: 1 }, { kind: 'fuel', tons: 1 }];
+      expect(codes(design(400, 'box', parts), 'error')).toEqual(['power-basic']);
+      expect(codes(design(400, 'box', [...parts, { kind: 'fitting', key: 'sails', tons: 15 }]), 'error')).toEqual([]);
+      expect(codes(design(400, 'box', [...parts, { kind: 'fitting', key: 'sails', tons: 15 }]), 'warn')).toContain('power-solar');
     });
 
     it('keeps solar power and batteries apart from the plant', () => {
@@ -336,6 +361,15 @@ describe('ship design engine', () => {
   it('builds faster in a higher-tech yard', () => {
     expect(run(design(1000, 'box', [], { tl: 7 })).buildDays).toBe(10);
     expect(run(design(1000, 'box', [], { tl: 8 })).buildDays).toBe(5);
+  });
+
+  it('needs no bridge on a ship flown by its computer', () => {
+    const flying = { ...rules, software: [...rules.software, { id: 'ghost', name: 'Ghost crew', family: 'virtualCrew', level: 0, tl: 6, bandwidth: 5, cost: 100 }] };
+    const drone = design(40, 'box', [{ kind: 'plant', key: 'reactor', tons: 1 }, { kind: 'computer', key: 'small' }, { kind: 'software', key: 'ghost' }]);
+    expect(evaluateDesign(rules, drone).missing).toContain('bridge');
+    const r = evaluateDesign(flying, drone);
+    expect(r.missing).not.toContain('bridge');
+    expect(r.issues.map((i) => i.code)).toContain('no-bridge');
   });
 
   it('offers a reaction drive in the catalogue', () => {
