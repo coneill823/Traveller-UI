@@ -139,6 +139,11 @@ function amount(n: unknown): number {
   return Number.isFinite(v) ? v : 0;
 }
 
+/** A catalogue name for the middle of a sentence: first letter lowered, abbreviations left alone. */
+export function inSentence(name: string): string {
+  return /^[A-Z][a-z]/.test(name) ? name[0].toLowerCase() + name.slice(1) : name;
+}
+
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
@@ -279,7 +284,7 @@ function optionsOf(defs: PartOptionDef[] | undefined, ids: string[] | undefined,
   }
   for (const def of out) {
     const clash = out.find((o) => o !== def && def.excludes?.includes(o.id));
-    if (clash) fail('option-clash', `${def.name} cannot be combined with ${clash.name.toLowerCase()}.`);
+    if (clash) fail('option-clash', `${def.name} cannot be combined with ${inSentence(clash.name)}.`);
   }
   return out;
 }
@@ -798,7 +803,7 @@ export function evaluateDesign(rules: ShipRules, spec: ShipSpec): DesignReport {
   }
   for (const { partId, def } of fittingParts) {
     const clash = fittingParts.find((other) => other.def !== def && def.excludes?.includes(other.def.id));
-    if (clash) issues.push({ level: 'error', code: 'fitting-clash', partId, text: `${def.name} cannot be combined with ${clash.def.name.toLowerCase()}.` });
+    if (clash) issues.push({ level: 'error', code: 'fitting-clash', partId, text: `${def.name} cannot be combined with ${inSentence(clash.def.name)}.` });
   }
 
   // ── fuel ──
@@ -1220,7 +1225,7 @@ export function entryState(rules: ShipRules, spec: ShipSpec, report: DesignRepor
       else if (def.overTons !== undefined && report.hullTons <= def.overTons) state.blocked = `Hulls over ${def.overTons.toLocaleString('en-US')} tons only`;
       else if (def.maxHull !== undefined && report.hullTons > def.maxHull) state.blocked = `Hulls up to ${def.maxHull.toLocaleString('en-US')} tons only`;
       else if (def.single && spec.parts.some((p) => p.kind === 'fitting' && p.key === def.id)) state.blocked = 'Already fitted';
-      else if (clash) state.blocked = `Not with ${clash.name.toLowerCase()}`;
+      else if (clash) state.blocked = `Not with ${inSentence(clash.name)}`;
       else if (def.hardpoints && report.hardpoints.used + def.hardpoints > report.hardpoints.total) state.blocked = `Needs ${plural(def.hardpoints, 'free hardpoint')}`;
       break;
     }

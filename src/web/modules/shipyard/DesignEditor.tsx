@@ -431,7 +431,7 @@ function Stat({ label, value, unit }: { label: string; value: string | number; u
   return (
     <div className="stat">
       <span className="stat-label">{label}</span>
-      <span className="stat-value">
+      <span className={cx('stat-value', String(value).length > 4 && 'long')}>
         {value}
         {unit && <small>{unit}</small>}
       </span>
@@ -457,7 +457,7 @@ export function Figures({ report }: { report: DesignReport }) {
       </div>
       <div className="panel-body col gap-12">
         <div className="stat-row">
-          <Stat label="Thrust" value={report.thrust} unit="G" />
+          <Stat label="Thrust" value={report.reaction.thrust > 0 ? (report.thrust > 0 ? `${report.thrust}+${report.reaction.thrust}` : report.reaction.thrust) : report.thrust} unit="G" />
           <Stat label="Jump" value={report.jump} unit="pc" />
           <Stat label="Cargo" value={formatTons(Math.max(0, report.cargo))} unit="t" />
           <Stat label="Hull" value={report.hullPoints} />
@@ -514,6 +514,18 @@ export function Figures({ report }: { report: DesignReport }) {
             <dd>{formatTons(p.jdrive)}</dd>
             <dt>Sensors, weapons, systems</dt>
             <dd>{formatTons(p.other)}</dd>
+            {p.aux > 0 && (
+              <>
+                <dt>Solar collectors, near a star</dt>
+                <dd>+{formatTons(p.aux)}</dd>
+              </>
+            )}
+            {p.stored > 0 && (
+              <>
+                <dt>Held in batteries</dt>
+                <dd>{formatTons(p.stored)}</dd>
+              </>
+            )}
           </dl>
         </div>
 
@@ -522,6 +534,14 @@ export function Figures({ report }: { report: DesignReport }) {
           <dd>
             {formatTons(report.fuel.tons)} t{report.jump > 0 ? ` · jump-${report.fuel.parsecs}` : ''} · {report.fuel.weeks} weeks
           </dd>
+          {report.reaction.thrust > 0 && (
+            <>
+              <dt>Reaction drive</dt>
+              <dd>
+                Thrust {report.reaction.thrust} for {report.reaction.hours} hours ({formatTons(report.reaction.fuelPerHour)} t an hour)
+              </dd>
+            </>
+          )}
           <dt>{hp.firm ? 'Firmpoints' : 'Hardpoints'}</dt>
           <dd>
             {hp.used} of {hp.total} used
@@ -537,13 +557,14 @@ export function Figures({ report }: { report: DesignReport }) {
           <dd>
             {report.quarters.staterooms + report.quarters.high} staterooms{report.quarters.lowBerths ? ` · ${report.quarters.lowBerths} low berths` : ''}
             {report.quarters.seats ? ` · ${report.quarters.seats} seats` : ''}
+            {report.troops ? ` · room for ${report.troops} troops` : ''}
           </dd>
           <dt>Atmosphere</dt>
           <dd>{report.streamlined === 'full' ? 'Streamlined' : report.streamlined === 'partial' ? 'Partially streamlined' : 'Cannot enter atmosphere'}</dd>
         </dl>
 
         <div>
-          <div className="section-title">Crew (recommended)</div>
+          <div className="section-title">Crew ({report.crewCount} recommended{report.crewing === 'military' ? ', as a warship' : ''})</div>
           <dl className="kv-tight">
             {report.crew.map((c) => (
               <span key={c.role} style={{ display: 'contents' }}>

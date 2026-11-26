@@ -36,8 +36,11 @@ The exact shape of every section is documented by the TypeScript types in
 
 ## Adding a ship part or a stock design
 
-A fitting in `ships.json` says how it is sized (`unit`, `tons`, `hull` or `docking`) and what it
-costs; the design engine does the rest. For example, a supplement could add:
+A fitting in `ships.json` says how it is sized and what it costs; the design engine does the rest.
+The sizes are `unit` (so many of a fixed size), `tons` (a tonnage you choose), `hull` (a share of
+the hull), `docking` and `capacity` (sized from what it serves: a craft, a cargo, a drop tank) and
+`plant` (a share of the power plant). Fittings can also take hardpoints, need gunners, add
+protection, generate or store power, exclude one another and be limited to hulls of a certain size. For example, a supplement could add:
 
 ```json
 {
@@ -46,6 +49,13 @@ costs; the design engine does the rest. For example, a supplement could add:
   ]
 }
 ```
+
+A supplement pack can go a good deal further without any change to the app: new hull forms
+(with armour multipliers, or only part of their tonnage usable), hull types, armour priced per ton,
+reaction drives, drive and fuel-tank options, power plants with their own fuel appetite, computer
+cores, bridge, sensor and mount options, bays and spinal mounts, grades of build quality with
+advantages and drawbacks, and a fuller crew table for large and military ships. All of it is
+described field by field in `src/shared/rulepack.ts`.
 
 Stock designs are lists of parts in the same form the yard uses, so a design saved from the app
 can be turned into a stock design by copying its parts.

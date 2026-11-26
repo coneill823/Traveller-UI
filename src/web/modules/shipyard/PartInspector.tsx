@@ -1,8 +1,8 @@
 /** The inspector: sizing and options for whichever part of the design is selected. */
 import { useEffect, useState, type ReactNode } from 'react';
 import { OUTLINES, outlineOf, parseOutlineText } from '../../../shared/outlines';
-import type { ShipRules } from '../../../shared/rulepack';
-import { formatMCr, formatTons, fuelTonsFor, type DesignIssue, type DesignReport, type PartLine } from '../../../shared/rules/ship';
+import type { PartOptionDef, ShipRules } from '../../../shared/rulepack';
+import { formatMCr, formatTons, fuelTonsFor, inSentence, type DesignIssue, type DesignReport, type PartLine } from '../../../shared/rules/ship';
 import type { DesignPart, ShipOutline, ShipSpec } from '../../../shared/types';
 import { upload } from '../../net';
 import { toast } from '../../store';
@@ -103,6 +103,120 @@ function IssueList({ issues }: { issues: DesignIssue[] }) {
   );
 }
 
+/** Tick-boxes for the options a part can take, greyed out where the hull, the tech level or another option rules one out. */
+function OptionChecks({ defs, chosen, itemKey, hullTons, tl, disabled, onChange }: { defs: PartOptionDef[] | undefined; chosen: string[] | undefined; itemKey?: string; hullTons: number; tl: number; disabled: boolean; onChange: (next: string[]) => void }) {
+  const offered = (defs ?? []).filter((o) => !o.appliesTo || itemKey === undefined || o.appliesTo.includes(itemKey) || chosen?.includes(o.id));
+  if (offered.length === 0) return null;
+  const picked = new Set(chosen ?? []);
+  return (
+    <div className="col gap-4">
+      {offered.map((o) => {
+        const clash = offered.find((other) => other.id !== o.id && picked.has(other.id) && (other.excludes?.includes(o.id) || o.excludes?.includes(other.id)));
+        const why =
+          (o.tl ?? 0) > tl
+            ? `TL${o.tl}`
+            : o.overTons !== undefined && hullTons <= o.overTons
+              ? `hulls over ${o.overTons.toLocaleString('en-GB')} tons`
+              : o.maxTons !== undefined && hullTons > o.maxTons
+                ? `hulls up to ${o.maxTons.toLocaleString('en-GB')} tons`
+                : clash
+                  ? `not with ${inSentence(clash.name)}`
+                  : undefined;
+        const on = picked.has(o.id);
+        return (
+          <label key={o.id} className="check" title={o.note}>
+            <input
+              type="checkbox"
+              checked={on}
+              disabled={disabled || (!!why && !on)}
+              onChange={(e) => {
+                const next = new Set(picked);
+                if (e.target.checked) next.add(o.id);
+                else next.delete(o.id);
+                onChange([...next]);
+              }}
+            />
+            <span>
+              {o.name}
+              {why ? <span className="faint"> · {why}</span> : o.tl ? <span className="faint"> · TL{o.tl}</span> : null}
+              {o.note && <span className="faint tiny block">{o.note}</span>}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Build quality: a component made ahead of or behind its tech level, and the advantages or drawbacks that brings. */
+function BuildQuality({ rules, tag, part, turret, disabled, onPatch }: { rules: ShipRules; tag: string; part: DesignPart; turret?: boolean; disabled: boolean; onPatch: (patch: Partial<DesignPart>) => void }) {
+  const table = rules.customising;
+  if (!table) return null;
+  const grade = table.grades.find((g) => g.id === part.grade);
+  const advantages = (grade?.advantages ?? 0) > 0;
+  const allowed = grade ? (grade.advantages ?? grade.disadvantages ?? 0) : 0;
+  const choices = grade ? table.mods.filter((m) => m.kinds.includes(tag) && m.advantage === advantages && !(m.notTurrets && turret)) : [];
+  const mods = part.mods ?? [];
+  const used = mods.reduce((n, id) => n + (table.mods.find((m) => m.id === id)?.slots ?? 1), 0);
+  const word = advantages ? 'advantage' : 'drawback';
+  const setCount = (id: string, n: number) => onPatch({ mods: [...mods.filter((m) => m !== id), ...Array.from({ length: n }, () => id)] });
+  if (!table.mods.some((m) => m.kinds.includes(tag))) return null;
+  return (
+    <details className="insp-more" open={!!part.grade}>
+      <summary>
+        Build quality: <b>{grade?.name ?? 'Standard'}</b>
+      </summary>
+      <div className="col gap-4">
+        <select
+          className="select"
+          aria-label="Build quality"
+          value={part.grade ?? ''}
+          disabled={disabled}
+          onChange={(e) => {
+            const next = table.grades.find((g) => g.id === e.target.value);
+            const keep = next && grade && (next.advantages ?? 0) > 0 === advantages;
+            onPatch({ grade: next?.id, mods: keep ? mods : undefined });
+          }}
+        >
+          <option value="">Standard</option>
+          {table.grades.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name} · TL{g.tlShift >= 0 ? '+' : ''}
+              {g.tlShift} · {g.costMult >= 1 ? '+' : ''}
+              {Math.round((g.costMult - 1) * 100)}% cost · {g.advantages ? `${g.advantages} advantage${g.advantages > 1 ? 's' : ''}` : `${g.disadvantages} drawback${(g.disadvantages ?? 0) > 1 ? 's' : ''}`}
+            </option>
+          ))}
+        </select>
+        {grade && (
+          <>
+            <div className={cx('small', used > allowed ? 'status danger' : 'dim')}>
+              {used} of {allowed} {word}
+              {allowed === 1 ? '' : 's'} chosen
+            </div>
+            {choices.map((m) => {
+              const n = mods.filter((id) => id === m.id).length;
+              const cost = m.slots ?? 1;
+              const room = Math.floor((allowed - used) / cost);
+              return (
+                <div key={m.id} className="insp-row" title={m.effect}>
+                  <span className="small">
+                    {m.name}
+                    {cost > 1 ? <span className="faint"> · counts as {cost}</span> : null}
+                    {m.effect && <span className="faint tiny block">{m.effect}</span>}
+                  </span>
+                  <span className="insp-ctl">
+                    <Stepper label={m.name} value={n} min={0} max={m.once ? Math.min(1, n + Math.max(0, room)) : n + Math.max(0, room)} disabled={disabled} onChange={(v) => setCount(m.id, v)} />
+                  </span>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+
 interface PartProps {
   rules: ShipRules;
   spec: ShipSpec;
@@ -129,7 +243,8 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
   switch (part.kind) {
     case 'armour': {
       const def = rules.armour.find((a) => a.id === part.key);
-      const cap = Math.min(def?.maxByTl ? spec.tl : 99, def?.max ?? 99);
+      const hullOptions = (spec.hull.options ?? []).map((id) => rules.hull.options.find((o) => o.id === id));
+      const cap = Math.min(def?.maxByTl ? spec.tl + (def.maxTlPlus ?? 0) : 99, def?.max ?? 99) * hullOptions.reduce((n, o) => n * (o?.armourMaxMult ?? 1), 1);
       controls = (
         <Row label={`Protection (up to +${cap} at TL${spec.tl})`}>
           <Stepper label="protection" value={part.rating ?? 1} min={1} max={Math.max(cap, part.rating ?? 1)} disabled={off} onChange={(rating) => onPatch({ rating })} />
@@ -138,20 +253,37 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
       break;
     }
     case 'mdrive':
+    case 'rdrive':
     case 'jdrive': {
-      const def = part.kind === 'jdrive' ? rules.jdrive : rules.mdrive;
-      const allowed = def.tl.filter((tl) => tl <= spec.tl).length;
+      const def = part.kind === 'jdrive' ? rules.jdrive : part.kind === 'rdrive' ? rules.rdrive : rules.mdrive;
+      if (!def) break;
+      const jump = part.kind === 'jdrive';
+      const shift = rules.customising?.grades.find((g) => g.id === part.grade)?.tlShift ?? 0;
+      const allowed = def.tl.filter((tl) => tl + shift <= spec.tl).length;
+      const floor = def.zero ? 0 : 1;
       const rating = part.rating ?? 1;
-      const nextTl = def.tl[rating];
+      const nextTl = def.tl[rating] !== undefined ? def.tl[rating] + shift : undefined;
+      const basis = part.tons && part.tons > 0 ? part.tons : spec.hull.tons;
       controls = (
         <>
-          <Row label={part.kind === 'jdrive' ? 'Jump rating' : 'Thrust'}>
-            <Stepper label={part.kind === 'jdrive' ? 'jump rating' : 'thrust'} value={rating} min={1} max={Math.max(allowed, rating)} disabled={off} onChange={(r) => onPatch({ rating: r })} />
+          <Row label={jump ? 'Jump rating' : 'Thrust'}>
+            <Stepper label={jump ? 'jump rating' : 'thrust'} value={rating} min={floor} max={Math.max(allowed, rating)} disabled={off} onChange={(r) => onPatch({ rating: r })} />
           </Row>
           <p className="faint tiny">
-            {rating >= def.tl.length ? 'This is as far as the rules go.' : nextTl > spec.tl ? `The next step needs TL${nextTl}.` : `TL${spec.tl} allows up to ${part.kind === 'jdrive' ? 'Jump-' : 'Thrust '}${allowed}.`}
-            {part.kind === 'jdrive' ? ` Each parsec jumped burns ${formatTons(report.fuel.perParsec)} tons of fuel.` : ''}
+            {rating >= def.tl.length || nextTl === undefined ? 'This is as far as the rules go.' : nextTl > spec.tl ? `The next step needs TL${nextTl}.` : `TL${spec.tl} allows up to ${jump ? 'Jump-' : 'Thrust '}${allowed}.`}
+            {jump ? ` Each parsec jumped burns ${formatTons(report.fuel.perParsec)} tons of fuel.` : ''}
+            {part.kind === 'rdrive' ? ` At full thrust it burns ${formatTons(report.reaction.fuelPerHour)} tons of fuel an hour; the tanks give it ${report.reaction.hours} hours.` : ''}
+            {rating === 0 ? ' Rating 0 holds a station in its orbit and no more.' : ''}
           </p>
+          <OptionChecks defs={def.options} chosen={part.options} hullTons={spec.hull.tons} tl={spec.tl} disabled={off} onChange={(options) => onPatch({ options })} />
+          <details className="insp-more" open={basis !== spec.hull.tons}>
+            <summary>Sized for {basis === spec.hull.tons ? 'this hull' : <b>{formatTons(basis)} tons</b>}</summary>
+            <Row label="Tonnage the drive is built to move">
+              <Num label="tonnage the drive is sized for" value={basis} min={1} max={2_000_000} step={10} disabled={off} suffix="tons" onCommit={(tons) => onPatch({ tons: tons === spec.hull.tons ? undefined : tons })} />
+            </Row>
+            <p className="faint tiny">Size the drive for more than the hull if the ship will carry drop tanks, external cargo or craft on clamps; for less, and it delivers a lower rating.</p>
+          </details>
+          <BuildQuality rules={rules} tag={part.kind} part={part} disabled={off} onPatch={onPatch} />
         </>
       );
       break;
@@ -178,7 +310,11 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
               </button>
             </div>
           )}
-          <p className="faint tiny">Burns {formatTons(report.fuel.perPeriod)} tons of fuel every four weeks.</p>
+          <p className="faint tiny">
+            {part.grade ? 'The size above is the standard article; build quality changes what it takes up. ' : ''}
+            The ship's power plants burn {formatTons(report.fuel.perPeriod)} tons of fuel every four weeks.{def?.noJump ? ' This type cannot feed a jump drive.' : ''}
+          </p>
+          <BuildQuality rules={rules} tag="plant" part={part} disabled={off} onPatch={onPatch} />
         </>
       );
       break;
@@ -203,46 +339,58 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
               })}
             </div>
           )}
+          {canEdit && report.reaction.fuelPerHour > 0 && (
+            <div className="row wrap gap-4">
+              {[1, 4].map((h) => (
+                <button key={h} className="btn sm" onClick={() => onPatch({ tons: Math.round(((part.tons ?? 0) + report.reaction.fuelPerHour * h) * 1000) / 1000 })}>
+                  +{h} hour{h > 1 ? 's' : ''} of reaction thrust ({formatTons(report.reaction.fuelPerHour * h)} t)
+                </button>
+              ))}
+            </div>
+          )}
           <p className="faint tiny">
             {report.jump > 0 ? `One parsec of jump takes ${formatTons(report.fuel.perParsec)} tons. ` : ''}
             The power plant uses {formatTons(report.fuel.perPeriod)} tons every four weeks.
+            {report.reaction.fuelPerHour > 0 ? ` The reaction drive burns ${formatTons(report.reaction.fuelPerHour)} tons an hour at full thrust.` : ''}
           </p>
+          <OptionChecks defs={rules.fuel.options} chosen={part.options} hullTons={spec.hull.tons} tl={spec.tl} disabled={off} onChange={(options) => onPatch({ options })} />
         </>
       );
       break;
     }
     case 'bridge':
-    case 'computer': {
-      const options = part.kind === 'bridge' ? (part.key === 'bridge' || !part.key ? rules.bridge.options : []) : rules.computerOptions;
-      controls = options.length ? (
-        <div className="col gap-4">
-          {options.map((o) => (
-            <label key={o.id} className="check" title={o.note}>
-              <input type="checkbox" checked={part.options?.includes(o.id) ?? false} disabled={off || (o.tl ?? 0) > spec.tl} onChange={(e) => onPatch({ options: toggle(part.options, o.id, e.target.checked) })} />
-              <span>
-                {o.name}
-                {o.tl ? <span className="faint"> · TL{o.tl}</span> : null}
-                <span className="faint tiny block">{o.note}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      ) : null;
+    case 'computer':
+    case 'sensors': {
+      const options = part.kind === 'bridge' ? (part.key === 'bridge' || !part.key ? rules.bridge.options : []) : part.kind === 'computer' ? rules.computerOptions : rules.sensorOptions;
+      const spare = part.kind !== 'computer' && ((part.qty ?? 1) > 1 || spec.hull.tons > 1000);
+      controls = (
+        <>
+          {spare && (
+            <Row label={part.kind === 'bridge' ? 'Bridges (more than one is a backup)' : 'Suites fitted'}>
+              <Stepper label="number" value={part.qty ?? 1} min={1} max={9} disabled={off} onChange={(qty) => onPatch({ qty })} />
+            </Row>
+          )}
+          <OptionChecks defs={options} chosen={part.options} itemKey={part.key ?? 'bridge'} hullTons={spec.hull.tons} tl={spec.tl} disabled={off} onChange={(next) => onPatch({ options: next })} />
+        </>
+      );
       break;
     }
     case 'mount': {
       const def = rules.mounts.find((m) => m.id === part.key);
-      const slots = def ? (report.smallCraft && def.smallCraftSlots !== undefined ? def.smallCraftSlots : def.slots) : 0;
+      const slots = def ? (def.variable ? 1 : report.smallCraft && def.smallCraftSlots !== undefined ? def.smallCraftSlots : def.slots) : 0;
       const free = report.hardpoints.total - report.hardpoints.used;
+      const each = def?.variable ? Math.max(1, Math.round(line.hardpoints / Math.max(1, part.qty ?? 1))) : report.smallCraft ? (def?.firmpoints ?? 1) : (def?.hardpoints ?? 1);
       const weapons = part.weapons ?? [];
       const choices = rules.weapons.filter((w) => (w.mount ?? '') === (def?.accepts ?? ''));
+      const spinal = def?.variable ? rules.weapons.find((w) => w.id === weapons[0])?.spinal : undefined;
+      const points = report.hardpoints.firm ? 'firmpoint' : 'hardpoint';
       controls = (
         <>
-          <Row label={report.hardpoints.firm ? 'Firmpoints used' : 'Hardpoints used'}>
-            <Stepper label="mounts" value={part.qty ?? 1} min={1} max={(part.qty ?? 1) + Math.max(0, free)} disabled={off} onChange={(qty) => onPatch({ qty })} />
+          <Row label={each > 1 ? `Number (${each} ${points}s each)` : `Number (a ${points} each)`}>
+            <Stepper label="mounts" value={part.qty ?? 1} min={1} max={(part.qty ?? 1) + Math.max(0, Math.floor(free / each))} disabled={off} onChange={(qty) => onPatch({ qty })} />
           </Row>
           {Array.from({ length: Math.max(slots, weapons.length) }, (_, i) => (
-            <Row key={i} label={`Weapon ${i + 1}`}>
+            <Row key={i} label={slots === 1 ? 'Weapon' : `Weapon ${i + 1}`}>
               <select
                 className="select"
                 value={weapons[i] ?? ''}
@@ -255,30 +403,55 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
                   onPatch({ weapons: next.filter(Boolean) });
                 }}
               >
-                <option value="">Empty</option>
+                <option value="">{def?.accepts ? 'None' : 'Empty'}</option>
                 {choices.map((w) => (
                   <option key={w.id} value={w.id} disabled={w.tl > spec.tl}>
-                    {w.name} · {w.damage} · {w.range} · {formatMCr(w.cost)}
+                    {w.name} · {w.damage}
+                    {w.multiple ? ` x${w.multiple}` : ''} · {w.range} · {formatMCr(w.cost)}
                     {w.tl > spec.tl ? ` (TL${w.tl})` : ''}
                   </option>
                 ))}
               </select>
             </Row>
           ))}
-          {(part.qty ?? 1) > 1 && <p className="faint tiny">All {part.qty} mounts carry the same weapons.</p>}
+          {def?.variable && spinal && (
+            <>
+              <Row label={`Size, in multiples of ${spinal.baseTons.toLocaleString('en-GB')} tons`}>
+                <Stepper label="size" value={part.rating ?? 1} min={1} max={Math.max(part.rating ?? 1, Math.floor(spinal.maxTons / spinal.baseTons) + 2)} disabled={off} onChange={(rating) => onPatch({ rating })} />
+              </Row>
+              <p className="faint tiny">Power, damage dice and price all rise with each multiple. A spinal mount takes a hardpoint for every 100 tons and can fill no more than half the ship.</p>
+            </>
+          )}
+          {(part.qty ?? 1) > 1 && !def?.variable && <p className="faint tiny">All {part.qty} mounts carry the same weapons.</p>}
           {report.hardpoints.firm && rules.hardpoints.firmpointNote && <p className="faint tiny">{rules.hardpoints.firmpointNote}</p>}
+          <OptionChecks defs={rules.mountOptions} chosen={part.options} itemKey={def?.id} hullTons={spec.hull.tons} tl={spec.tl} disabled={off} onChange={(options) => onPatch({ options })} />
+          <BuildQuality rules={rules} tag="weapon" part={part} turret={!def?.accepts} disabled={off} onPatch={onPatch} />
         </>
       );
       break;
     }
     case 'fitting': {
       const def = rules.fittings.find((f) => f.id === part.key);
-      if (def?.size === 'unit' && !def.single) {
+      const most = def?.maxQtyHullPct ? Math.max(1, Math.floor((spec.hull.tons * def.maxQtyHullPct) / 100)) : 100000;
+      if (def?.size === 'unit' && (!def.single || def.maxQtyHullPct)) {
         controls = (
           <Row label={def.unitLabel ? `Number (each a ${def.unitLabel})` : 'Number'}>
-            <Stepper label="number" value={part.qty ?? 1} min={1} max={100000} disabled={off} onChange={(qty) => onPatch({ qty })} />
-            <Num label="number" value={part.qty ?? 1} min={1} max={100000} width={64} disabled={off} onCommit={(qty) => onPatch({ qty: Math.round(qty) })} />
+            <Stepper label="number" value={part.qty ?? 1} min={1} max={most} disabled={off} onChange={(qty) => onPatch({ qty })} />
+            <Num label="number" value={part.qty ?? 1} min={1} max={most} width={64} disabled={off} onCommit={(qty) => onPatch({ qty: Math.round(qty) })} />
           </Row>
+        );
+      } else if (def?.size === 'capacity') {
+        controls = (
+          <>
+            <Row label={`For how many ${def.capacityLabel ?? 'tons'}`}>
+              <Num label={def.capacityLabel ?? 'tons'} value={part.rating ?? 0} min={0} max={2_000_000} step={1} disabled={off} onCommit={(rating) => onPatch({ rating })} />
+            </Row>
+            {!def.single && (
+              <Row label="Number of this size">
+                <Stepper label="number" value={part.qty ?? 1} min={1} max={999} disabled={off} onChange={(qty) => onPatch({ qty })} />
+              </Row>
+            )}
+          </>
         );
       } else if (def?.size === 'tons') {
         controls = (
@@ -298,10 +471,18 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
           </>
         );
       }
-      if (def?.note) controls = (
+      controls = (
         <>
           {controls}
-          <p className="faint tiny">{def.note}</p>
+          {def?.note && <p className="faint tiny">{def.note}</p>}
+          {def && (canEdit || part.name) && (
+            <details className="insp-more" open={!!part.name}>
+              <summary>Label{part.name ? <b>: {part.name}</b> : ''}</summary>
+              <TextBox value={part.name ?? ''} disabled={off} onCommit={(name) => onPatch({ name: name.trim() || undefined })} />
+              <p className="faint tiny">A note of your own for the manifest: what it protects, who it is for.</p>
+            </details>
+          )}
+          {def?.custom && <BuildQuality rules={rules} tag={def.custom} part={part} disabled={off} onPatch={onPatch} />}
         </>
       );
       break;
@@ -329,6 +510,11 @@ export function PartInspector({ rules, spec, report, part, line, issues, canEdit
           <Row label="Number">
             <Stepper label="number" value={part.qty ?? 1} min={1} max={999} disabled={off} onChange={(qty) => onPatch({ qty })} />
           </Row>
+          {part.kind === 'craft' && rules.crew.establishment && (
+            <Row label="Crew each needs from the ship">
+              <Stepper label="crew for the craft" value={part.rating ?? 0} min={0} max={20} disabled={off} onChange={(rating) => onPatch({ rating })} />
+            </Row>
+          )}
           <p className="faint tiny">{part.kind === 'craft' ? 'A boat or vehicle bought with the ship. It takes no tonnage itself: give it docking space.' : 'Use this for house rules and parts from other books.'}</p>
         </>
       );
@@ -399,6 +585,8 @@ export function HullInspector({ rules, spec, report, canEdit, yardTl, onChange }
   const outline = outlineOf(spec);
   const setHull = (hull: Partial<ShipSpec['hull']>) => onChange({ ...spec, hull: { ...spec.hull, ...hull } });
   const hp = report.hardpoints;
+  const tlMin = Math.min(7, ...rules.plants.map((p) => p.tl));
+  const tlMax = Math.max(15, ...rules.plants.map((p) => p.tl), ...rules.armour.map((a) => a.tl));
   return (
     <div className="insp">
       <div className="insp-head">
@@ -426,34 +614,28 @@ export function HullInspector({ rules, spec, report, canEdit, yardTl, onChange }
         <select className="select" disabled={off} value={spec.hull.config} onChange={(e) => setHull({ config: e.target.value })}>
           {rules.hull.configurations.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} ({c.costMult === 1 ? 'standard cost' : `${c.costMult > 1 ? '+' : ''}${Math.round((c.costMult - 1) * 100)}% cost`})
+              {c.name} ({c.costPerTon !== undefined ? `Cr${c.costPerTon.toLocaleString('en-GB')} a ton` : c.costMult === 1 ? 'standard cost' : `${c.costMult > 1 ? '+' : ''}${Math.round((c.costMult - 1) * 100)}% cost`})
             </option>
           ))}
         </select>
       </Field>
-      {rules.hull.options.map((o) => (
-        <label key={o.id} className="check" title={o.note}>
-          <input
-            type="checkbox"
-            disabled={off}
-            checked={spec.hull.options?.includes(o.id) ?? false}
-            onChange={(e) => {
-              const set = new Set(spec.hull.options ?? []);
-              if (e.target.checked) set.add(o.id);
-              else set.delete(o.id);
-              setHull({ options: [...set] });
-            }}
-          />
-          <span>
-            {o.name}
-            <span className="faint tiny block">{o.note}</span>
-          </span>
-        </label>
-      ))}
+      {cfg?.noOptions ? (
+        rules.hull.options.length > 0 && <p className="faint tiny">A {cfg.name.toLowerCase()} hull is what it is: it cannot be built reinforced, light or the like.</p>
+      ) : (
+        <OptionChecks defs={rules.hull.options} chosen={spec.hull.options} hullTons={spec.hull.tons} tl={spec.tl} disabled={off} onChange={(options) => setHull({ options })} />
+      )}
+      {rules.crew.establishment && !report.smallCraft && (
+        <Row label="Crewed as">
+          <select className="select" aria-label="Crewing standard" disabled={off} value={spec.crewing ?? 'commercial'} onChange={(e) => onChange({ ...spec, crewing: e.target.value === 'military' ? 'military' : undefined })}>
+            <option value="commercial">A commercial ship</option>
+            <option value="military">A warship</option>
+          </select>
+        </Row>
+      )}
       <Row label="Design tech level">
-        <Stepper label="tech level" value={spec.tl} min={7} max={15} disabled={off} onChange={(tl) => onChange({ ...spec, tl })} />
+        <Stepper label="tech level" value={spec.tl} min={Math.min(tlMin, spec.tl)} max={Math.max(tlMax, spec.tl)} disabled={off} onChange={(tl) => onChange({ ...spec, tl })} />
         {canEdit && yardTl !== undefined && yardTl !== spec.tl && (
-          <button className="btn sm" onClick={() => onChange({ ...spec, tl: Math.min(15, Math.max(7, yardTl)) })}>
+          <button className="btn sm" onClick={() => onChange({ ...spec, tl: Math.min(tlMax, Math.max(tlMin, yardTl)) })}>
             Match this yard (TL{yardTl})
           </button>
         )}

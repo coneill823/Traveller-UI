@@ -600,6 +600,67 @@ body[data-dragging='part'] .yard-bin {
 .insp p {
   margin: 0;
 }
+.insp-more {
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+.insp-more > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.insp-more > summary::-webkit-details-marker {
+  display: none;
+}
+.insp-more > summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.12s;
+}
+.insp-more[open] > summary::before {
+  transform: rotate(90deg);
+}
+.insp-more > summary b {
+  color: var(--text);
+  font-weight: 600;
+}
+.insp-more[open] > summary {
+  margin-bottom: 7px;
+}
+.insp-more > .col,
+.insp-more > .insp-row,
+.insp-more > p {
+  margin-top: 4px;
+}
+.insp-more .select {
+  width: 100%;
+}
+.stock-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 0;
+  background: var(--bg-1);
+}
+.stock-filters .input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.stock-filters .select {
+  width: auto;
+}
 .insp-foot {
   margin-top: 4px;
   padding-top: 9px;
@@ -676,12 +737,13 @@ body[data-dragging='part'] .yard-bin {
 /* Figures and checks */
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 6px;
 }
 .stat {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding: 6px 8px;
   background: var(--bg-2);
   border: 1px solid var(--line);
@@ -695,6 +757,10 @@ body[data-dragging='part'] .yard-bin {
   font-size: 20px;
   font-weight: 600;
   line-height: 1.2;
+}
+.stat-value.long {
+  font-size: 15px;
+  line-height: 1.6;
 }
 .stat-value small {
   margin-left: 2px;

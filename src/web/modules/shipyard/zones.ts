@@ -10,7 +10,7 @@ export type ZoneId = 'eng' | 'crew' | 'mission' | 'other';
 export const ZONES: { id: ZoneId; label: string; hint: string; color: string }[] = [
   { id: 'eng', label: 'Engineering', hint: 'Drives, power plant and fuel', color: '#e76624' },
   { id: 'crew', label: 'Crew and command', hint: 'Bridge, electronics and quarters', color: '#338ced' },
-  { id: 'mission', label: 'Mission systems', hint: 'Weapons, craft, drones and fittings', color: '#00a888' },
+  { id: 'mission', label: 'Mission systems', hint: 'Weapons, screens, craft, drones and fittings', color: '#00a888' },
   { id: 'other', label: 'Structure and other', hint: 'Armour and custom parts', color: '#74849a' },
 ];
 
@@ -22,6 +22,7 @@ const GROUP_ZONE: Record<string, ZoneId> = {
   quarters: 'crew',
   software: 'crew',
   weapons: 'mission',
+  screens: 'mission',
   craft: 'mission',
   drones: 'mission',
   cargo: 'mission',
@@ -42,6 +43,8 @@ export function shortLabel(line: PartLine): string {
   switch (line.kind) {
     case 'mdrive':
       return 'M-drive';
+    case 'rdrive':
+      return 'R-drive';
     case 'jdrive':
       return 'J-drive';
     case 'plant':

@@ -168,6 +168,9 @@ function NewDesignDialog({ rules, onClose }: { rules: ShipRules; onClose: () => 
   const [tl, setTl] = useState(12);
   const [config, setConfig] = useState(rules.hull.configurations[0]?.id ?? 'standard');
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState('');
+  const [size, setSize] = useState<'all' | 'small' | 'adventure' | 'capital'>('all');
+  const [book, setBook] = useState('all');
   const { system, yard } = useYard(rules);
   const here = system && canBuildAnything(yard);
 
@@ -188,7 +191,25 @@ function NewDesignDialog({ rules, onClose }: { rules: ShipRules; onClose: () => 
       navigate(`/shipyard/${res.id}`);
     }
   };
-  const group = (small: boolean) => rows.filter((r) => r.report.smallCraft === small);
+  const sourceOf = (d: StockDesign) => d.source ?? 'Core rules';
+  const books = useMemo(() => [...new Set(rules.designs.map(sourceOf))], [rules]);
+  const q = query.trim().toLowerCase();
+  const shown = rows
+    .filter((r) => {
+      const tons = r.design.hull.tons;
+      if (size === 'small' && !r.report.smallCraft) return false;
+      if (size === 'adventure' && (r.report.smallCraft || tons > 2400)) return false;
+      if (size === 'capital' && tons <= 2400) return false;
+      if (book !== 'all' && sourceOf(r.design) !== book) return false;
+      return !q || `${r.design.name} ${r.design.type ?? ''} ${r.design.summary ?? ''}`.toLowerCase().includes(q);
+    })
+    .sort((a, b) => a.design.hull.tons - b.design.hull.tons || a.design.name.localeCompare(b.design.name));
+  const group = (from: number, to: number) => shown.filter((r) => r.design.hull.tons >= from && r.design.hull.tons < to);
+  const bands: [string, number, number][] = [
+    ['Small craft', 0, 100],
+    ['Ships of 100 to 2,400 tons', 100, 2401],
+    ['Capital ships', 2401, Infinity],
+  ];
   const Row = ({ design, report, blocked }: { design: StockDesign; report: ReturnType<typeof evaluateDesign>; blocked: ReturnType<typeof yardIssues> }) => (
     <button className="stock-row" disabled={busy} onClick={() => void create({ stock: design.id })}>
       <span className="stock-name">
@@ -232,14 +253,39 @@ function NewDesignDialog({ rules, onClose }: { rules: ShipRules; onClose: () => 
       {tab === 'stock' ? (
         <div className="stock-list">
           <p className="small dim">Stock designs are ten per cent cheaper as long as they are built unchanged. Pick one to open it on the drawing board; you can alter anything from there.</p>
-          <h4>Ships</h4>
-          {group(false).map((r) => (
-            <Row key={r.design.id} {...r} />
-          ))}
-          <h4>Small craft</h4>
-          {group(true).map((r) => (
-            <Row key={r.design.id} {...r} />
-          ))}
+          <div className="stock-filters">
+            <input className="input" type="search" placeholder={`Find among ${rows.length} designs…`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Find a stock design" />
+            <select className="select" aria-label="Size of ship" value={size} onChange={(e) => setSize(e.target.value as typeof size)}>
+              <option value="all">Any size</option>
+              <option value="small">Small craft</option>
+              <option value="adventure">100 to 2,400 tons</option>
+              <option value="capital">Capital ships</option>
+            </select>
+            {books.length > 1 && (
+              <select className="select" aria-label="Source" value={book} onChange={(e) => setBook(e.target.value)}>
+                <option value="all">Every book</option>
+                {books.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {shown.length === 0 && <p className="small dim">Nothing matches.</p>}
+          {bands.map(([label, from, to]) => {
+            const list = group(from, to);
+            return list.length ? (
+              <section key={label}>
+                <h4>
+                  {label} <span className="faint">({list.length})</span>
+                </h4>
+                {list.map((r) => (
+                  <Row key={r.design.id} {...r} />
+                ))}
+              </section>
+            ) : null;
+          })}
         </div>
       ) : (
         <div className="col gap-12" style={{ maxWidth: 460, paddingTop: 12 }}>
@@ -263,7 +309,7 @@ function NewDesignDialog({ rules, onClose }: { rules: ShipRules; onClose: () => 
           </Field>
           <Field label="Tech level" hint={here && yard.tl !== undefined ? `The yard here works at TL${yard.tl}.` : undefined}>
             <div className="row wrap gap-4">
-              {[9, 10, 11, 12, 13, 14, 15].map((n) => (
+              {Array.from({ length: Math.max(15, ...rules.plants.map((p) => p.tl > 16 ? 16 : p.tl)) - 6 }, (_, i) => i + 7).map((n) => (
                 <button key={n} className={cx('btn sm', tl === n && 'on')} onClick={() => setTl(n)}>
                   {n}
                 </button>
