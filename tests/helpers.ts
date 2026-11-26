@@ -39,12 +39,12 @@ export function loadPacks(...names: string[]): RulePack {
   return pack;
 }
 
-export function testConfig(overrides: Partial<Config> = {}): Config {
+export function testConfig(overrides: Partial<Config> = {}, extraPacks: string[] = []): Config {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traveller-ui-test-'));
-  // The server under test gets the core pack alone, whatever else is installed, so expectations hold.
+  // The server under test gets the core pack alone (plus any asked for), whatever else is installed, so expectations hold.
   const rulepackDir = path.join(dataDir, 'rulepacks');
   fs.mkdirSync(rulepackDir);
-  if (HAS_CORE_RULES) fs.cpSync(path.join(RULEPACK_DIR, 'mgt2-core'), path.join(rulepackDir, 'mgt2-core'), { recursive: true });
+  for (const name of HAS_CORE_RULES ? ['mgt2-core', ...extraPacks] : []) fs.cpSync(path.join(RULEPACK_DIR, name), path.join(rulepackDir, name), { recursive: true });
   return {
     port: 0,
     host: '127.0.0.1',
@@ -178,8 +178,8 @@ export interface Table {
 }
 
 /** Boots a server on a temporary folder with a GM already set up and connected. */
-export async function setTable(overrides: Partial<Config> = {}, serverOpts: Parameters<typeof startServer>[1] = {}): Promise<Table> {
-  const config = testConfig(overrides);
+export async function setTable(overrides: Partial<Config> = {}, serverOpts: Parameters<typeof startServer>[1] = {}, extraPacks: string[] = []): Promise<Table> {
+  const config = testConfig(overrides, extraPacks);
   // Tests drive wiki syncs by hand so they are not racing a background watcher.
   const running = await startServer(config, { quiet: true, skipWikiStart: true, ...serverOpts });
   const port = running.port;

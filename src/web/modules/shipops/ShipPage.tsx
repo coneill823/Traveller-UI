@@ -1,5 +1,6 @@
 /** The ship's status board: the hull plan with damage showing on it, systems, alerts and crew stations. */
 import { useEffect, useMemo, useState } from 'react';
+import { shrugsOff, weaponProfile } from '../../../shared/rules/space';
 import type { SpaceRules } from '../../../shared/rulepack';
 import type { Character, Ship, ShipAlert } from '../../../shared/types';
 import { act, onEvent, run } from '../../net';
@@ -376,10 +377,14 @@ function HitDialog({ ship, onClose }: { ship: Ship; onClose: () => void }) {
   const effect = total === undefined ? 0 : Math.round(total) - target;
   const rolled = numberOr(damage);
   const dealt = rolled === undefined ? undefined : Math.round(rolled) + Math.max(0, effect);
-  const multiplier = def ? rules?.attack.afterArmourMultiplier[def.id] : undefined;
-  const armour = ignoreArmour ? 0 : (ship.armour ?? 0);
-  const through = dealt === undefined ? undefined : Math.max(0, dealt - armour) * (multiplier ?? 1);
-  const critical = rules && through !== undefined && through > 0 && effect >= rules.criticals.effectAtLeast;
+  const profile = rules && def ? weaponProfile(pack.ships, rules, def.id) : undefined;
+  const multiplier = profile?.multiple;
+  const pierces = profile?.ap === Infinity;
+  const ap = profile && profile.ap !== Infinity ? profile.ap : 0;
+  const armour = ignoreArmour || pierces ? 0 : Math.max(0, (ship.armour ?? 0) - ap);
+  const through = dealt === undefined ? undefined : profile?.ion ? 0 : Math.max(0, dealt - armour) * (multiplier ?? 1);
+  const tooBig = !!rules && !!profile && shrugsOff(rules, ship.tons, profile.mount);
+  const critical = rules && through !== undefined && through > 0 && effect >= rules.criticals.effectAtLeast && !tooBig;
   const miss = total !== undefined && effect < 0;
 
   const go = async () => {
@@ -392,7 +397,10 @@ function HitDialog({ ship, onClose }: { ship: Ship; onClose: () => void }) {
         effect,
         ...(location ? { location } : {}),
         ...(multiplier ? { multiplier } : {}),
-        ignoreArmour,
+        ...(ap ? { ap } : {}),
+        ...(profile?.ion ? { ion: true } : {}),
+        ...(tooBig ? { noCritical: true } : {}),
+        ignoreArmour: ignoreArmour || pierces,
         attacker: attacker.trim() || undefined,
         weapon: def?.name,
       });
@@ -439,7 +447,7 @@ function HitDialog({ ship, onClose }: { ship: Ship; onClose: () => void }) {
           <Field label="Attack roll (total)" hint={`${target}+ hits. Leave empty for damage with no attack roll (a collision, an explosion).`}>
             <input className="input mono" type="number" value={roll} onChange={(e) => setRoll(e.target.value)} />
           </Field>
-          <Field label="Damage rolled" hint={def ? `${def.damage}${multiplier ? `, tripled after armour` : ''}. The Effect is added for you.` : 'The Effect is added for you.'}>
+          <Field label="Damage rolled" hint={def ? `${def.damage}${multiplier ? `, x${multiplier} after armour` : ''}${ap ? `, AP ${ap}` : pierces ? ', ignores armour' : ''}. The Effect is added for you.` : 'The Effect is added for you.'}>
             <input className="input mono" type="number" min={0} value={damage} onChange={(e) => setDamage(e.target.value)} />
           </Field>
         </div>
@@ -465,7 +473,16 @@ function HitDialog({ ship, onClose }: { ship: Ship; onClose: () => void }) {
           ) : (
             <>
               {total !== undefined && `Effect ${effect}. `}
-              {dealt} damage, {armour} stopped by armour{multiplier ? `, x${multiplier}` : ''}: <b>{through} to the hull</b> ({Math.max(0, (ship.hull ?? ship.hullMax ?? 0) - (through ?? 0))} left).
+              {profile?.ion ? (
+                <>
+                  An ion weapon: <b>{dealt} Power knocked out</b> until the ship has taken its next actions, and no damage to the hull.
+                </>
+              ) : (
+                <>
+                  {dealt} damage, {Math.min(dealt, armour)} stopped by armour{multiplier ? `, x${multiplier}` : ''}: <b>{through} to the hull</b> ({Math.max(0, (ship.hull ?? ship.hullMax ?? 0) - (through ?? 0))} left).
+                  {tooBig && effect >= (rules?.criticals.effectAtLeast ?? 99) ? ' Too big a ship for that weapon to score a critical hit.' : ''}
+                </>
+              )}
               {critical ? ` Critical hit, severity ${effect - (rules?.criticals.severityOffset ?? 5)}.` : ''}
             </>
           )}

@@ -336,6 +336,9 @@ export interface ModDef {
   once?: boolean;
   /** Not for weapons in turrets and fixed mounts. */
   notTurrets?: boolean;
+  /** In a fight: DM to attacks with the weapon, and extra armour piercing. */
+  attackDm?: number;
+  ap?: number;
   effect?: string;
 }
 
@@ -749,7 +752,28 @@ export interface SpaceAction {
   repair?: boolean;
   lock?: boolean;
   initiative?: boolean;
+  /** Works by itself: no check, just the number of missiles it stops (rolled by hand). */
+  count?: boolean;
   note: string;
+}
+
+/** A kind of missile, torpedo or sandcaster canister. */
+export interface AmmoDef {
+  id: string;
+  kind: 'missile' | 'torpedo' | 'canister';
+  name: string;
+  tl: number;
+  thrust?: number;
+  damage?: string;
+  /** Credits for a batch of `per`. */
+  cost: number;
+  per: number;
+  traits?: string[];
+  /** The standard load, used when nothing else is named. */
+  standard?: boolean;
+  /** Keeps its numbers however long the flight. */
+  endurance?: boolean;
+  note?: string;
 }
 
 /** What a critical hit of one severity does. `text` is for the crew; the rest is applied automatically. */
@@ -790,6 +814,12 @@ export interface SpaceRules {
     extraWeaponPerDie: number;
     /** Weapons whose damage is multiplied once armour has been taken off. */
     afterArmourMultiplier: Record<string, number>;
+    /** The skill for bay and spinal weapons, where it differs from the turret skill. */
+    capitalSkill?: string;
+    /** Heavy mounts track small targets badly: DM by the weapon's mount and the target's tonnage. */
+    sizeDm?: { mount: string; maxTons: number; dm: number }[];
+    /** Spinal weapons at close quarters: DM by range band, for attackers up to each tonnage in `attackerTons` and beyond. */
+    spinalRange?: { attackerTons: number[]; bands: { range: string; dm: number[] }[]; minTargetTons?: number };
   };
   duties: SpaceDuty[];
   actions: SpaceAction[];
@@ -803,9 +833,25 @@ export interface SpaceRules {
     overflowDice: number;
     locations: { roll: number; id: string; name: string }[];
     effects: Record<string, CriticalEffect[]>;
+    /** Big ships shrug off telling blows from light weapons: over this tonnage, hits from these mounts ("" for turrets) cause no critical. */
+    immunity?: { overTons: number; mounts: string[] }[];
   };
   repair: { baseTarget: number; lastsHoursDice: number; note: string };
-  missiles: { perTurret: number; refillCost: number; flight: { range: string; rounds: number }[]; maxRounds: number; dmPerMissile: number; distantDm: number; note: string };
+  missiles: {
+    perTurret: number;
+    refillCost: number;
+    flight: { range: string; rounds: number }[];
+    /** Flight times for other drives, keyed by Thrust. */
+    flightByThrust?: Record<string, { range: string; rounds: number }[]>;
+    /** A salvo of missiles halves for every this-many full rounds in flight. */
+    halveEvery?: number;
+    maxRounds: number;
+    dmPerMissile: number;
+    distantDm: number;
+    note: string;
+  };
+  /** Kinds of missile, torpedo and canister beyond the standard load. */
+  ammo?: AmmoDef[];
   sand: { perTurret: number; refillCost: number };
   scale?: Record<string, number>;
   dogfight?: { note: string };

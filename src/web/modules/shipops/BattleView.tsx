@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { SpaceAction, SpaceRules } from '../../../shared/rulepack';
-import { attackDm, CONDITION_LABEL, conditionOf, linkedBonus, locationName, rangeIndex } from '../../../shared/rules/space';
+import { ammoOf, attackDm, CONDITION_LABEL, conditionOf, linkedBonus, locationName, missileFlight, rangeIndex, salvoArriving, weaponProfile } from '../../../shared/rules/space';
 import type { Battle, BattleRecord, BattleResult, BattleShip, BattleStepId, Character, CrewAction, Id, Ship } from '../../../shared/types';
 import { newId } from '../../../shared/util';
 import { act, onEvent, run } from '../../net';
@@ -83,7 +83,9 @@ function describe(rules: SpaceRules | undefined, a: CrewAction, r: BattleResult 
   } else if (a.action === 'fire' || a.action === 'pilotFire') {
     bits.push(`fires${a.weapon ? ` ${a.weapon}` : ''}${target ? ` at ${target}` : ''}`);
     if (check) bits.push(`${check}: ${r?.hit === false ? 'miss' : 'hit'}`);
-    if (r?.dealt !== undefined) bits.push(`${r.dealt} damage${r.taken !== undefined && r.taken !== r.dealt ? ` (${r.taken} past armour)` : ''}`);
+    if (r?.powerLost !== undefined) bits.push(`${r.powerLost} Power knocked out${(r.powerRounds ?? 1) > 1 ? ` for ${r.powerRounds} rounds` : ' until its next actions'}`);
+    else if (r?.dealt !== undefined) bits.push(`${r.dealt} damage${r.taken !== undefined && r.taken !== r.dealt ? ` (${r.taken} to the hull)` : ''}`);
+    if (r?.shruggedOff) bits.push('too big a ship for that to be a critical hit');
     for (const c of r?.criticals ?? []) bits.push(`${c.name} damaged, severity ${c.severity}`);
     if (r?.wrecked) bits.push(`${target ?? 'the target'} is wrecked`);
   } else if (r?.range) {
@@ -750,8 +752,20 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
   const mount = mounts.find((m) => m.id === a.mount);
   const weaponDef = mount?.weapons.find((w) => w.name === a.weapon) ?? pack.ships?.weapons.find((w) => w.name === a.weapon);
   const targetTons = target?.seen?.tons ?? target?.quick?.tons ?? (target?.shipId ? getEntity<Ship>(target.shipId)?.tons : undefined);
-  const situational = def?.weapon ? attackDm(rules, { range, weapons: weaponDef ? [weaponDef.id] : [], targetTons, lock: planShip.locks?.includes(a.targetId ?? '') ?? false, pilotFiring: a.action === 'pilotFire', calledShot: !!a.location }) : undefined;
-  const isMissile = /missile/i.test(a.weapon ?? '');
+  const profile = weaponProfile(pack.ships, rules, a.weapon);
+  const mountPart = ship?.spec?.parts.find((p) => p.id === (a.mount ?? '').split('#')[0]);
+  const mods = (mountPart?.mods ?? []).map((id) => pack.ships?.customising?.mods.find((m) => m.id === id)).filter((m) => m !== undefined);
+  const situational = def?.weapon
+    ? attackDm(rules, { range, weapons: weaponDef ? [weaponDef.id] : [], profile: a.weapon ? profile : undefined, attackerTons: ship?.tons ?? planShip.quick?.tons, mods, targetTons, lock: planShip.locks?.includes(a.targetId ?? '') ?? false, pilotFiring: a.action === 'pilotFire', calledShot: !!a.location })
+    : undefined;
+  const isMissile = profile.ammo !== undefined;
+  const heavy = profile.mount.endsWith('Bay') || profile.mount === 'spinal';
+  const skill = def?.weapon && heavy ? (rules.attack.capitalSkill ?? def.check?.skill) : def?.check?.skill;
+  const rounds = (rules.ammo ?? []).filter((x) => x.kind === profile.ammo);
+  const round = isMissile ? ammoOf(rules, profile.ammo, a.ammo) : undefined;
+  const flight = isMissile ? missileFlight(rules, range, round?.thrust) : 0;
+  const perSalvo = (weaponDef as { salvo?: number } | undefined)?.salvo ?? pack.ships?.weapons.find((w) => w.id === profile.def?.id)?.salvo ?? 1;
+  const tooSmall = profile.mount === 'spinal' && rules.attack.spinalRange?.minTargetTons !== undefined && targetTons !== undefined && targetTons < rules.attack.spinalRange.minTargetTons;
   const salvos = battle.salvos.filter((s) => !s.done && (def?.weapon ? s.fromId === planShip.id && s.impactRound <= battle.round : s.toId === planShip.id));
   const damaged = Object.keys(ship?.crits ?? {}).filter((l) => (ship?.crits?.[l] ?? 0) > 0);
   const reachable = !weaponDef || !band || rangeIndex(rules, range) <= Math.max(rangeIndex(rules, rules.ranges.find((r) => r.name === weaponDef.range)?.id), weaponDef.range === 'Special' ? 99 : -1) || weaponDef.range === 'Special';
@@ -759,7 +773,7 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
   const rollIt = async () => {
     if (!a.characterId || !def?.check) return;
     try {
-      const res = await act<{ id: Id; total: number }>('character.check', { id: a.characterId, skill: def.check.skill, char: def.check.char, dm: situational?.dm ?? 0, target: needed, label: `${def.name}${a.weapon ? `: ${a.weapon}` : ''}` });
+      const res = await act<{ id: Id; total: number }>('character.check', { id: a.characterId, skill: skill ?? def.check.skill, char: def.check.char, dm: situational?.dm ?? 0, target: needed, label: `${def.name}${a.weapon ? `: ${a.weapon}` : ''}` });
       flashRoll(res.id);
       set({ roll: { total: res.total, target: needed, rollId: res.id }, done: true });
     } catch (err) {
@@ -819,10 +833,10 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
                   onChange={(e) => {
                     const m = mounts.find((x) => x.id === e.target.value);
                     const w = m?.weapons[0];
-                    set({ mount: e.target.value || undefined, weapon: w?.name, weapons: w ? m!.weapons.filter((x) => x.id === w.id).length : undefined });
+                    set({ mount: e.target.value || undefined, weapon: w?.name, weapons: w ? m!.weapons.filter((x) => x.id === w.id).length : undefined, ammo: undefined, missiles: undefined });
                   }}
                 >
-                  <option value="">Turret…</option>
+                  <option value="">Mount…</option>
                   {mounts.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.label}
@@ -854,10 +868,35 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
                 <Icon name="warning" size={12} /> Out of range: {weaponDef?.name} reaches {weaponDef?.range} only
               </span>
             )}
+            {tooSmall && (
+              <span className="small status warn">
+                <Icon name="warning" size={12} /> A spinal mount cannot be brought to bear on a ship that small unless it is standing still
+              </span>
+            )}
+            {isMissile && rounds.length > 1 && !a.salvoId && (
+              <div className="step-row">
+                <span className="small dim">Load</span>
+                <select className="select" aria-label="Kind of missile" disabled={off} value={round?.id ?? ''} onChange={(e) => set({ ammo: e.target.value || undefined })} title={round?.note}>
+                  {rounds.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                      {x.damage ? ` · ${x.damage}` : ''}
+                      {x.thrust ? ` · Thrust ${x.thrust}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {isMissile && (
               <div className="step-row">
-                <span className="small dim">Missiles</span>
-                <IntField label="Missiles launched" value={a.missiles ?? a.weapons ?? 1} disabled={off} onCommit={(missiles) => set({ missiles: Math.max(1, missiles ?? 1) })} />
+                <span className="small dim">{profile.ammo === 'torpedo' ? 'Torpedoes' : 'Missiles'}</span>
+                <IntField label="Missiles launched" value={a.missiles ?? (a.weapons ?? 1) * perSalvo} disabled={off} onCommit={(missiles) => set({ missiles: Math.max(1, missiles ?? 1) })} />
+                {!a.salvoId && flight > 0 && (
+                  <span className="small dim nowrap">
+                    {flight} round{flight === 1 ? '' : 's'} to arrive
+                    {salvoArriving(rules, a.missiles ?? (a.weapons ?? 1) * perSalvo, flight, round) < (a.missiles ?? (a.weapons ?? 1) * perSalvo) ? `, ${salvoArriving(rules, a.missiles ?? (a.weapons ?? 1) * perSalvo, flight, round)} still on course` : ''}
+                  </span>
+                )}
                 {salvos.length > 0 && (
                   <select className="select" aria-label="Salvo arriving" disabled={off} value={a.salvoId ?? ''} onChange={(e) => set({ salvoId: e.target.value || undefined })}>
                     <option value="">New launch</option>
@@ -878,10 +917,16 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
               <option value="">Which salvo…</option>
               {salvos.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.missiles} missiles, round {s.impactRound}
+                  {s.missiles} {s.torpedoes ? 'torpedoes' : 'missiles'}, round {s.impactRound}
                 </option>
               ))}
             </select>
+            {def.count && (
+              <>
+                <span className="small dim">stops</span>
+                <IntField label="Missiles stopped" placeholder="dice" value={a.missiles} disabled={off} onCommit={(missiles) => set({ missiles: missiles === undefined ? undefined : Math.max(0, missiles), done: missiles !== undefined })} />
+              </>
+            )}
           </div>
         )}
         {def?.location && (
@@ -899,11 +944,11 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
         )}
         {(def?.check || a.roll) && (
           <div className="step-row">
-            <span className="small dim">{def?.check?.skill ?? 'Check'}</span>
+            <span className="small dim">{skill ?? 'Check'}</span>
             <IntField label="Check total" placeholder="total" value={a.roll?.total} disabled={off} onCommit={(total) => set({ roll: total === undefined ? undefined : { total, target: needed } })} />
             <span className="small dim">vs {needed}</span>
             {editable && a.characterId && def?.check && (
-              <button className="btn sm" onClick={() => void rollIt()} title={`Roll ${def.check.skill}${situational?.dm ? ` with DM${situational.dm > 0 ? '+' : ''}${situational.dm} for the situation` : ''}`}>
+              <button className="btn sm" onClick={() => void rollIt()} title={`Roll ${skill ?? def.check.skill}${situational?.dm ? ` with DM${situational.dm > 0 ? '+' : ''}${situational.dm} for the situation` : ''}`}>
                 <Icon name="dice" size={13} />
               </button>
             )}
@@ -915,13 +960,15 @@ function CrewCard({ a, battle, rules, planShip, mounts, others, rangeTo, ship, e
           </div>
         )}
         {situational && situational.parts.length > 0 && <span className="tiny faint">{situational.parts.map((p) => `${p.label} ${p.dm > 0 ? '+' : ''}${p.dm}`).join(' · ')}</span>}
-        {def?.weapon && ok && !(isMissile && !a.salvoId && (rules.missiles.flight.find((f) => f.range === range)?.rounds ?? 0) > 0) && (
+        {def?.weapon && ok && !(isMissile && !a.salvoId && flight > 0) && (
           <div className="step-row">
             <span className="small dim">Damage</span>
             <IntField label="Damage rolled" placeholder="dice" value={a.damage} disabled={off} onCommit={(damage) => set({ damage })} />
             <span className="small dim nowrap">
-              {weaponDef ? `${weaponDef.damage}${(a.weapons ?? 1) > 1 ? ` +${linkedBonus(rules, weaponDef.damage, a.weapons ?? 1)}` : ''}` : ''}
+              {isMissile && round?.damage ? round.damage : weaponDef ? `${weaponDef.damage}${(a.weapons ?? 1) > 1 && !isMissile ? ` +${linkedBonus(rules, weaponDef.damage, a.weapons ?? 1)}` : ''}` : ''}
               {a.damage !== undefined ? (a.salvoId ? ` · x Effect` : ` · +${effect} = ${a.damage + Math.max(0, effect ?? 0)}`) : ''}
+              {profile.ion ? ' · knocks out Power, not hull' : profile.multiple && !isMissile ? ` · x${profile.multiple} past armour` : ''}
+              {profile.ap ? ` · ${profile.ap === Infinity ? 'ignores armour' : `AP ${profile.ap + mods.reduce((n, m) => n + (m.ap ?? 0), 0)}`}` : ''}
             </span>
           </div>
         )}

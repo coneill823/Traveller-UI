@@ -2,7 +2,7 @@
  * Space combat: range bands, attack modifiers, and what a hit does to a ship: hull, armour and
  * the critical hits that knock systems out. Tables come from the rules pack.
  */
-import type { CriticalEffect, SpaceRules } from '../rulepack';
+import type { AmmoDef, CriticalEffect, ModDef, ShipRules, ShipWeaponDef, SpaceRules } from '../rulepack';
 import type { ShipSpec } from '../types';
 import { rollDice, sum, type Rng } from '../util';
 
@@ -27,6 +27,10 @@ export interface HitInput {
   ignoreArmour?: boolean;
   /** Extra armour against this hit only (sand). */
   extraArmour?: number;
+  /** Points of armour the weapon ignores. */
+  ap?: number;
+  /** An ion weapon: knocks out Power instead of damaging the hull, whatever the armour. */
+  ion?: boolean;
   noCritical?: boolean;
 }
 
@@ -53,6 +57,8 @@ export interface HitOutcome extends ShipState {
   hullLost: number;
   criticals: CritOutcome[];
   wrecked: boolean;
+  /** Power knocked out by an ion weapon. */
+  powerLost?: number;
 }
 
 function d(n: number, rng: Rng): number {
@@ -83,7 +89,8 @@ export function resolveHit(rules: SpaceRules, ship: ShipState, hit: HitInput, op
   const c = rules.criticals;
   const state: ShipState = { hull: ship.hull, hullMax: ship.hullMax, armour: ship.armour, fuel: ship.fuel, crits: { ...ship.crits } };
   const damage = Math.max(0, hit.damage);
-  const armour = hit.ignoreArmour ? 0 : Math.max(0, state.armour + (hit.extraArmour ?? 0));
+  if (hit.ion) return { ...state, taken: 0, absorbed: 0, hullLost: 0, criticals: [], wrecked: state.hull <= 0, powerLost: damage };
+  const armour = hit.ignoreArmour ? 0 : Math.max(0, state.armour + (hit.extraArmour ?? 0) - (hit.ap ?? 0));
   const taken = Math.max(0, damage - armour) * (hit.multiplier ?? 1);
   const absorbed = damage - Math.max(0, damage - armour);
   const criticals: CritOutcome[] = [];
@@ -202,6 +209,56 @@ export interface AttackContext {
   lock?: boolean;
   pilotFiring?: boolean;
   calledShot?: boolean;
+  /** The weapon's own entry in the ship rules, where there is one. */
+  profile?: WeaponProfile;
+  attackerTons?: number;
+  /** Build quality of the mount fired. */
+  mods?: ModDef[];
+}
+
+/** What a ship's weapon brings to a fight, from the ship rules where it is listed and the combat tables otherwise. */
+export interface WeaponProfile {
+  def?: ShipWeaponDef;
+  name: string;
+  attackDm: number;
+  /** After-armour damage multiple, when there is one. */
+  multiple?: number;
+  /** Armour ignored; Infinity for weapons no armour stops. */
+  ap: number;
+  ion: boolean;
+  /** What it is mounted in: "" for a turret or fixed mount, otherwise barbette, a bay size or spinal. */
+  mount: string;
+  ammo?: 'missile' | 'torpedo';
+}
+
+export function weaponProfile(ships: ShipRules | undefined, rules: SpaceRules, nameOrId: string | undefined): WeaponProfile {
+  const text = (nameOrId ?? '').trim().toLowerCase();
+  const def = text ? ships?.weapons.find((w) => w.id.toLowerCase() === text || w.name.toLowerCase() === text) : undefined;
+  const key = def?.id ?? text;
+  const table = <T,>(map: Record<string, T>): T | undefined => map[key] ?? (def ? undefined : Object.entries(map).find(([k]) => text.includes(k))?.[1]);
+  const apTrait = def?.traits.map((t) => /^AP\s*(∞|\d+)/i.exec(t)).find((m) => m);
+  const ammo = def?.ammo === 'missile' || def?.ammo === 'torpedo' ? def.ammo : !def && /torpedo/.test(text) ? 'torpedo' : !def && /missile/.test(text) ? 'missile' : undefined;
+  return {
+    def,
+    name: def?.name ?? nameOrId ?? '',
+    attackDm: def?.attackDm ?? rules.attack.weaponDm[key] ?? 0,
+    multiple: def?.multiple ?? table(rules.attack.afterArmourMultiplier),
+    ap: apTrait ? (apTrait[1] === '∞' ? Infinity : Number(apTrait[1])) : 0,
+    ion: !!def?.traits.some((t) => /^ion$/i.test(t)),
+    mount: def?.mount ?? '',
+    ammo,
+  };
+}
+
+/** The kind of missile or torpedo a salvo is made of: the one named, or the standard load. */
+export function ammoOf(rules: SpaceRules, kind: 'missile' | 'torpedo' | undefined, id: string | undefined): AmmoDef | undefined {
+  const all = rules.ammo ?? [];
+  return all.find((a) => a.id === id && (!kind || a.kind === kind)) ?? all.find((a) => a.kind === kind && a.standard);
+}
+
+/** Whether a ship of this size takes no critical hit from a weapon in this kind of mount. */
+export function shrugsOff(rules: SpaceRules, targetTons: number | undefined, mount: string): boolean {
+  return (rules.criticals.immunity ?? []).some((row) => (targetTons ?? 0) > row.overTons && row.mounts.includes(mount));
 }
 
 /** Modifiers to a gunnery roll that come from the situation rather than the gunner. */
@@ -209,8 +266,24 @@ export function attackDm(rules: SpaceRules, ctx: AttackContext): { dm: number; p
   const parts: { label: string; dm: number }[] = [];
   const band = rules.ranges.find((r) => r.id === ctx.range);
   if (band?.attackDm) parts.push({ label: `${band.name} range`, dm: band.attackDm });
-  const weapon = (ctx.weapons ?? []).map((w) => ({ w, dm: rules.attack.weaponDm[w] ?? 0 })).sort((a, b) => b.dm - a.dm)[0];
-  if (weapon?.dm) parts.push({ label: weapon.w === 'beam' ? 'Beam laser' : weapon.w === 'pulse' ? 'Pulse laser' : weapon.w, dm: weapon.dm });
+  if (ctx.profile) {
+    if (ctx.profile.attackDm) parts.push({ label: ctx.profile.name, dm: ctx.profile.attackDm });
+  } else {
+    const weapon = (ctx.weapons ?? []).map((w) => ({ w, dm: rules.attack.weaponDm[w] ?? 0 })).sort((a, b) => b.dm - a.dm)[0];
+    if (weapon?.dm) parts.push({ label: weapon.w === 'beam' ? 'Beam laser' : weapon.w === 'pulse' ? 'Pulse laser' : weapon.w, dm: weapon.dm });
+  }
+  const mount = ctx.profile?.mount ?? '';
+  if (ctx.targetTons !== undefined && !ctx.profile?.ammo) {
+    const heavy = (rules.attack.sizeDm ?? []).filter((row) => row.mount === mount && ctx.targetTons! <= row.maxTons).sort((a, b) => a.maxTons - b.maxTons)[0];
+    if (heavy) parts.push({ label: `Small target for a ${mount === 'spinal' ? 'spinal mount' : 'bay weapon'}`, dm: heavy.dm });
+  }
+  const spinal = rules.attack.spinalRange;
+  if (mount === 'spinal' && spinal) {
+    const column = spinal.attackerTons.findIndex((t) => (ctx.attackerTons ?? 0) < t);
+    const dm = spinal.bands.find((b) => b.range === ctx.range)?.dm[column === -1 ? spinal.attackerTons.length : column];
+    if (dm) parts.push({ label: 'Spinal mount at close quarters', dm });
+  }
+  for (const mod of ctx.mods ?? []) if (mod.attackDm) parts.push({ label: mod.name, dm: mod.attackDm });
   const size = Math.min(rules.attack.targetSizeMaxDm, Math.floor((ctx.targetTons ?? 0) / rules.attack.targetSizeTons));
   if (size > 0) parts.push({ label: 'Large target', dm: size });
   if (ctx.lock) parts.push({ label: 'Sensor lock', dm: rules.attack.sensorLockDm });
@@ -219,9 +292,17 @@ export function attackDm(rules: SpaceRules, ctx: AttackContext): { dm: number; p
   return { dm: parts.reduce((n, p) => n + p.dm, 0), parts };
 }
 
-/** Rounds before a salvo launched at this range arrives. */
-export function missileFlight(rules: SpaceRules, range: string | undefined): number {
-  return rules.missiles.flight.find((f) => f.range === range)?.rounds ?? 0;
+/** Rounds before a salvo launched at this range arrives, for the standard drive or one of another Thrust. */
+export function missileFlight(rules: SpaceRules, range: string | undefined, thrust?: number): number {
+  const table = (thrust !== undefined ? rules.missiles.flightByThrust?.[String(thrust)] : undefined) ?? rules.missiles.flight;
+  return table.find((f) => f.range === range)?.rounds ?? 0;
+}
+
+/** How many missiles of a salvo are still on course after a flight of this many rounds. */
+export function salvoArriving(rules: SpaceRules, missiles: number, rounds: number, ammo?: AmmoDef): number {
+  const every = rules.missiles.halveEvery;
+  if (!every || ammo?.endurance || ammo?.kind === 'torpedo') return missiles;
+  return Math.max(1, Math.floor(missiles / 2 ** Math.floor(rounds / every)));
 }
 
 /** Damage bonus for firing several identical weapons from one mount: +1 per damage die for each extra weapon. */

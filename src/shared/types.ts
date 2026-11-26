@@ -598,8 +598,10 @@ export interface CrewAction {
   /** Critical hit location: a called shot, or the system being repaired. */
   location?: string;
   salvoId?: Id;
-  /** Missiles launched. */
+  /** Missiles launched, or stopped by a defence that needs no roll. */
   missiles?: number;
+  /** Kind of missile or torpedo, from the rules pack. */
+  ammo?: string;
   note?: string;
 }
 
@@ -619,6 +621,11 @@ export interface BattleResult {
   repaired?: string;
   initiativeDm?: number;
   lock?: boolean;
+  /** Power knocked out by an ion weapon, and for how many rounds. */
+  powerLost?: number;
+  powerRounds?: number;
+  /** A hit that would have been critical, on a ship too large to notice. */
+  shruggedOff?: boolean;
 }
 
 export interface BattleRecord {
@@ -643,6 +650,9 @@ export interface Salvo {
   /** Not yet detected by the party. */
   hidden?: boolean;
   done?: boolean;
+  /** Kind of missile or torpedo, from the rules pack. */
+  ammo?: string;
+  torpedoes?: boolean;
 }
 
 /** A fight between ships, run in rounds of three steps with each ship acting in initiative order. */

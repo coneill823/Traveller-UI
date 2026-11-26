@@ -5,9 +5,9 @@
 import type { Viewer } from '../../shared/knowledge';
 import { skillLevel } from '../../shared/rules/character';
 import { evaluateDesign, shipFigures, specFromStock, arrangeParts } from '../../shared/rules/ship';
-import { effectiveThrust, locationApplies, locationName, missileFlight, partsAt, resolveHit, stepRange, type HitInput, type HitOutcome, type ShipState } from '../../shared/rules/space';
-import type { SpaceRules } from '../../shared/rulepack';
-import type { Battle, BattleRecord, BattleResult, BattleShip, BattleStepId, Character, CombatSide, CrewAction, Id, Ship, ShipAlert } from '../../shared/types';
+import { ammoOf, effectiveThrust, locationApplies, locationName, missileFlight, partsAt, resolveHit, salvoArriving, shrugsOff, stepRange, weaponProfile, type HitInput, type HitOutcome, type ShipState } from '../../shared/rules/space';
+import type { ModDef, SpaceRules } from '../../shared/rulepack';
+import type { Battle, BattleRecord, BattleResult, BattleShip, BattleStepId, Character, CombatSide, CrewAction, Id, Salvo, Ship, ShipAlert } from '../../shared/types';
 import { deepClone, newId, rollDice, sum } from '../../shared/util';
 import { applyPreset, checkAudience } from './core';
 import { action, ActionError, check, requireGm, type ActionCtx } from './registry';
@@ -51,6 +51,9 @@ function applyOutcome(ctx: ActionCtx, ship: Ship, outcome: HitOutcome, source: {
       text: outcome.taken > 0 ? `${outcome.taken} damage to the hull${outcome.absorbed ? `, ${outcome.absorbed} stopped by armour` : ''}.` : undefined,
       at: now,
     });
+  }
+  if (outcome.powerLost) {
+    alerts.push({ id: newId('alr'), kind: 'hit', location: 'powerPlant', partId: partsAt(ship.spec, 'powerPlant')[0], title: `Ion hit${from ? `: ${from}` : ''}`, text: `${outcome.powerLost} Power knocked out until the ship has taken its next actions. Hardened systems keep theirs.`, at: now });
   }
   for (const c of outcome.criticals) {
     const extra = [c.extraDamage ? `${c.extraDamage} more damage to the hull` : '', c.armourLost ? `${c.armourLost} armour lost` : '', c.fuelLost ? `${c.fuelLost} tons of fuel lost` : ''].filter(Boolean).join('; ');
@@ -140,7 +143,9 @@ action('ship.hit', (ctx, p) => {
     damage: check.num(p.damage, 'damage', { min: 0, max: 100000 }),
     effect: p.effect === undefined ? undefined : check.int(p.effect, 'effect', { min: -20, max: 40 }),
     location: p.location === undefined || p.location === null ? undefined : check.str(p.location, 'location', { max: 40 }),
-    multiplier: p.multiplier === undefined ? undefined : check.num(p.multiplier, 'multiplier', { min: 0, max: 100 }),
+    multiplier: p.multiplier === undefined ? undefined : check.num(p.multiplier, 'multiplier', { min: 0, max: 100_000 }),
+    ap: p.ap === undefined ? undefined : check.int(p.ap, 'ap', { min: 0, max: 200 }),
+    ion: !!p.ion,
     ignoreArmour: !!p.ignoreArmour,
     extraArmour: p.extraArmour === undefined ? undefined : check.int(p.extraArmour, 'extraArmour', { min: 0, max: 200 }),
     noCritical: !!p.noCritical,
@@ -325,6 +330,7 @@ function cleanAction(value: unknown, name: string, me: Viewer): CrewAction {
   }
   if (v.damage !== undefined && v.damage !== null) a.damage = check.int(v.damage, `${name}.damage`, { min: 0, max: 100000 });
   if (v.addEffect === false) a.addEffect = false;
+  if (v.ammo !== undefined && v.ammo !== null) a.ammo = check.str(v.ammo, `${name}.ammo`, { max: 40 });
   if (v.thrust !== undefined && v.thrust !== null) a.thrust = check.int(v.thrust, `${name}.thrust`, { min: 0, max: 30 });
   if (v.closing !== undefined) a.closing = check.bool(v.closing, `${name}.closing`);
   if (v.location !== undefined && v.location !== null) a.location = check.str(v.location, `${name}.location`, { max: 40 });
@@ -566,6 +572,13 @@ function strike(ctx: ActionCtx, draft: Battle, target: BattleShip, hit: HitInput
   return outcome;
 }
 
+/** Build-quality advantages and drawbacks of the mount a weapon is fired from. */
+function modsOf(ctx: ActionCtx, ship: Ship | undefined, mount: string | undefined): ModDef[] {
+  const table = ctx.services.rules.pack.ships?.customising?.mods ?? [];
+  const part = ship?.spec?.parts.find((p) => p.id === (mount ?? '').split('#')[0]);
+  return (part?.mods ?? []).map((id) => table.find((m) => m.id === id)).filter((m) => m !== undefined);
+}
+
 function resolveActions(ctx: ActionCtx, draft: Battle, actor: BattleShip, actions: CrewAction[]): BattleResult[] {
   const rules = spaceRules(ctx);
   const results: BattleResult[] = [];
@@ -611,10 +624,23 @@ function resolveActions(ctx: ActionCtx, draft: Battle, actor: BattleShip, action
     }
 
     if (def?.weapon && target && a.roll) {
-      const flight = /missile/i.test(a.weapon ?? '') ? missileFlight(rules, band) : 0;
+      const profile = weaponProfile(ctx.services.rules.pack.ships, rules, a.weapon);
+      const round = profile.ammo ? ammoOf(rules, profile.ammo, a.ammo) : undefined;
+      const flight = profile.ammo ? missileFlight(rules, band, round?.thrust) : 0;
       if (flight > 0 && !a.salvoId) {
-        // Missiles take time to arrive: the attack roll is made when they do.
-        const salvo = { id: newId('slv'), fromId: actor.id, toId: target.id, missiles: a.missiles ?? a.weapons ?? 1, launched: draft.round, impactRound: draft.round + flight, ...(actor.hidden ? { hidden: true } : {}) };
+        // Missiles take time to arrive: the attack roll is made when they do. Long flights thin a salvo out.
+        const launched = a.missiles ?? a.weapons ?? 1;
+        const salvo: Salvo = {
+          id: newId('slv'),
+          fromId: actor.id,
+          toId: target.id,
+          missiles: salvoArriving(rules, launched, flight, round),
+          launched: draft.round,
+          impactRound: draft.round + flight,
+          ...(actor.hidden ? { hidden: true } : {}),
+          ...(round ? { ammo: round.id } : {}),
+          ...(profile.ammo === 'torpedo' ? { torpedoes: true } : {}),
+        };
         draft.salvos.push(salvo);
         r.salvo = { id: salvo.id, missiles: salvo.missiles, impactRound: salvo.impactRound };
         delete r.hit;
@@ -622,15 +648,24 @@ function resolveActions(ctx: ActionCtx, draft: Battle, actor: BattleShip, action
       } else if (success && a.damage !== undefined) {
         const salvo = a.salvoId ? draft.salvos.find((x) => x.id === a.salvoId) : undefined;
         const effect = r.effect ?? 0;
-        const key = (a.weapon ?? '').toLowerCase();
-        const multiplier = salvo ? Math.max(1, Math.min(effect, salvo.missiles)) : Object.entries(rules.attack.afterArmourMultiplier).find(([w]) => key.includes(w))?.[1];
+        const multiplier = salvo ? Math.max(1, Math.min(effect, salvo.missiles)) : profile.multiple;
         // A salvo's Effect multiplies its damage instead of adding to it.
         const dealt = a.damage + (salvo || a.addEffect === false ? 0 : Math.max(0, effect));
-        const outcome = strike(ctx, draft, target, { damage: dealt, effect, location: a.location, multiplier }, { attacker: actor.name, weapon: a.weapon });
+        const targetTons = (target.shipId ? ctx.tx.get<Ship>(target.shipId)?.tons : undefined) ?? target.quick?.tons;
+        const immune = !salvo && shrugsOff(rules, targetTons, profile.mount);
+        const mods = modsOf(ctx, actorShip, a.mount);
+        const ap = profile.ap + mods.reduce((n, m) => n + (m.ap ?? 0), 0);
+        const hit: HitInput = { damage: dealt, effect, location: a.location, multiplier, ...(ap === Infinity ? { ignoreArmour: true } : ap > 0 ? { ap } : {}), ...(profile.ion ? { ion: true } : {}), ...(immune ? { noCritical: true } : {}) };
+        const outcome = strike(ctx, draft, target, hit, { attacker: actor.name, weapon: a.weapon });
         r.dealt = dealt;
         r.taken = outcome.taken;
         r.absorbed = outcome.absorbed;
         r.wrecked = outcome.wrecked || undefined;
+        if (outcome.powerLost !== undefined) {
+          r.powerLost = outcome.powerLost;
+          r.powerRounds = effect >= rules.criticals.effectAtLeast ? Math.ceil((1 + Math.floor(Math.random() * 6)) / 2) : 1;
+        }
+        if (immune && effect >= rules.criticals.effectAtLeast && outcome.taken > 0) r.shruggedOff = true;
         if (outcome.criticals.length) r.criticals = outcome.criticals.map((c) => ({ location: c.location, name: c.name, severity: c.severity, text: c.text }));
       }
       if (a.salvoId) {
@@ -639,12 +674,15 @@ function resolveActions(ctx: ActionCtx, draft: Battle, actor: BattleShip, action
       }
     }
 
-    if (def?.salvo && a.salvoId && success) {
+    if (def?.salvo && a.salvoId && (def.count ? (a.missiles ?? 0) > 0 : success)) {
       const salvo = draft.salvos.find((x) => x.id === a.salvoId);
       if (salvo) {
-        salvo.missiles = Math.max(0, salvo.missiles - (r.effect ?? 0));
+        // Torpedoes are harder to stop: a gunner's point defence counts for half.
+        const stopped = def.count ? (a.missiles ?? 0) : salvo.torpedoes && def.id === 'pointDefence' ? Math.floor((r.effect ?? 0) / 2) : (r.effect ?? 0);
+        salvo.missiles = Math.max(0, salvo.missiles - stopped);
         if (salvo.missiles === 0) salvo.done = true;
         r.missilesLeft = salvo.missiles;
+        used = true;
       }
     }
     if (def?.repair && a.location && success && actorShip) {
