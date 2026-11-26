@@ -993,3 +993,12 @@ body[data-dragging='part'] .yard-bin {
 body.is-dragging .holo-tip {
   display: none;
 }
+
+.gm-select {
+  width: auto;
+  max-width: 190px;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-color: var(--gm-dim);
+  color: var(--gm);
+}

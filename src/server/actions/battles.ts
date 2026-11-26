@@ -474,6 +474,8 @@ action('battle.start', (ctx, p) => {
     draft.step = 'manoeuvre';
     draft.turn = battleOrder(draft)[0]?.id;
   });
+  // Battle stations: bring every player's screen to the battle.
+  ctx.emit('navigate', { path: `/ship/battle/${b.id}`, from: ctx.me.playerId, note: `Battle stations: ${b.name}` }, (v) => v.role !== 'gm');
 });
 
 action('battle.end', (ctx, p) => {

@@ -81,6 +81,9 @@ describe('encounters on the server', () => {
     await table.gm.act('encounter.combatant', { id: enc, combatantId: sniper.id, patch: { initiative: 6 } });
     await table.gm.act('encounter.start', { id: enc });
     await eventually(() => expect(gmView()).toMatchObject({ status: 'active', round: 1, turn: sniper.id }));
+    // Starting the fight brings every player's screen to it; the GM stays where they are.
+    await eventually(() => expect(ann.client.events.some((e) => e.ev === 'navigate' && e.d.path === `/combat/${enc}` && /Combat has begun/.test(e.d.note))).toBe(true));
+    expect(table.gm.events.some((e) => e.ev === 'navigate')).toBe(false);
     // The sniper is hidden: players are not told whose turn it is.
     await eventually(() => expect(view(ann).status).toBe('active'));
     expect(view(ann).turn).toBeUndefined();

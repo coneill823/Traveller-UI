@@ -317,6 +317,8 @@ action('encounter.start', (ctx, p) => {
     draft.round = 1;
     draft.turn = turnOrder(ctx.tx, draft)[0]?.id;
   });
+  // Bring every player's screen to the fight.
+  ctx.emit('navigate', { path: `/combat/${e.id}`, from: ctx.me.playerId, note: `Combat has begun: ${e.name}` }, (v) => v.role !== 'gm');
 });
 
 action('encounter.end', (ctx, p) => {

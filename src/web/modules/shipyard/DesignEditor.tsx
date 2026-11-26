@@ -97,6 +97,9 @@ export function DesignEditor({ design }: { design: ShipDesign }) {
   const [building, setBuilding] = useState(false);
   const refit = useEntity<Ship>(design.refitOf);
   const builtShip = useEntity<Ship>(design.shipId);
+  const allShips = useType('ship');
+  // Ships added by hand have no plan yet: the GM can give them this one.
+  const unplanned = allShips.filter((s) => !s.spec);
 
   const update = (next: ShipSpec) => void run('design.update', { id: design.id, spec: next });
   const lineOf = (id: string) => report.lines.find((l) => l.partId === id);
@@ -230,6 +233,22 @@ export function DesignEditor({ design }: { design: ShipDesign }) {
             <Link className="btn sm" to="/inventory">
               <Icon name="ship" size={13} /> {builtShip.name ?? 'The ship'}
             </Link>
+          )}
+          {gm && design.status !== 'built' && unplanned.length > 0 && (
+            <select
+              className="select gm-select"
+              aria-label="Attach this design to an existing ship"
+              title="Give a ship that was added by hand this design as its plan"
+              value=""
+              onChange={(e) => e.target.value && void run('design.attach', { id: design.id, shipId: e.target.value }, 'Design attached to the ship')}
+            >
+              <option value="">Attach to a ship…</option>
+              {unplanned.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name ?? 'Unnamed ship'}
+                </option>
+              ))}
+            </select>
           )}
           <button
             className="btn sm"

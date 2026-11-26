@@ -34,6 +34,8 @@ export interface PresenceEvent {
 export interface NavigateEvent {
   path: string;
   from: Id;
+  /** What to tell the player about why their screen changed. */
+  note?: string;
 }
 
 export interface StatusResponse {

@@ -111,7 +111,7 @@ function handle(msg: ServerMessage): void {
       if (msg.ev === 'presence') useApp.setState({ online: (msg.d as PresenceEvent).online });
       if (msg.ev === 'navigate') {
         const nav = msg.d as NavigateEvent;
-        toast('The GM has opened a view for you.');
+        toast(nav.note ?? 'The GM has opened a view for you.');
         navigate(nav.path);
       }
       for (const handler of eventHandlers.get(msg.ev) ?? []) handler(msg.d);

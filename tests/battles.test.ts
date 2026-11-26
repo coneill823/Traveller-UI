@@ -113,6 +113,8 @@ describe.skipIf(!HAS_CORE_RULES)('ship status and space battles on the server', 
     }
     await table.gm.act('battle.start', { id: battle });
     await eventually(() => expect(view(ann)).toMatchObject({ status: 'active', round: 1, step: 'manoeuvre', turn: entry(view(ann), 'Wayfarer').id }));
+    await eventually(() => expect(bob.client.events.some((e) => e.ev === 'navigate' && e.d.path === `/ship/battle/${battle}`)).toBe(true));
+    expect(gmView().flagship).toBe(entry(gmView(), 'Wayfarer').id);
   });
 
   it('pools the crew’s actions into the ship’s turn and changes the range', async () => {
