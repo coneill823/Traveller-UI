@@ -4,7 +4,7 @@
  *
  * Dice are written nD or nDs (2D, D3, d10, 3D6); a bare D is one six-sided die. Names stand for
  * values passed in. Operators are + - * / ^ with the usual precedence, and the functions min, max,
- * floor, ceil, round, abs, sqrt, ln and pow are available. Comparisons (< <= > >= == !=) and the
+ * floor, ceil, round, abs, sqrt, ln, pow, sin and cos (of an angle in degrees) are available. Comparisons (< <= > >= == !=) and the
  * words and, or, not give 1 for true and 0 for false, for conditions such as "worlds < 4 and stars > 1".
  */
 import type { Rng } from './util';
@@ -22,6 +22,8 @@ const FUNCTIONS: Record<string, (...args: number[]) => number> = {
   sqrt: Math.sqrt,
   ln: Math.log,
   pow: Math.pow,
+  sin: (degrees) => Math.sin((degrees * Math.PI) / 180),
+  cos: (degrees) => Math.cos((degrees * Math.PI) / 180),
 };
 
 interface Token {

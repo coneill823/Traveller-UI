@@ -20,6 +20,7 @@
  */
 import { evaluate, type Vars } from '../dicex';
 import type { RollRow, StarRow, SystemRules, WhenDm } from '../rulepack';
+import type { BodyDetail } from '../types';
 import type { Rng } from '../util';
 import { ehexChar } from '../uwp';
 
@@ -73,6 +74,7 @@ export interface MoonInfo {
   sizeValue: number;
   giant?: { code: string; diameter: number; mass: number };
   mainworld?: boolean;
+  detail?: BodyDetail;
 }
 
 export interface WorldInfo {
@@ -99,6 +101,14 @@ export interface WorldInfo {
   mainworld?: boolean;
   moons: MoonInfo[];
   rings: number;
+  /** The stars inside its orbit: how many, their mass and their light together (Sun = 1). */
+  starCount: number;
+  starMass: number;
+  starLight: number;
+  /** Centre of the habitable zone it is measured against, as an orbit number. */
+  hzco: number;
+  /** The world in detail, once worked out. */
+  detail?: BodyDetail;
 }
 
 export interface SystemLayout {
@@ -127,7 +137,7 @@ export interface KnownSystem {
   belts?: number;
   /** Total worlds, where the listing gives it. */
   worlds?: number;
-  mainworld?: { size: number; atm: number; temperature?: 'frozen' | 'cold' | 'temperate' | 'hot' | 'boiling' };
+  mainworld?: { size: number; atm: number; hydro?: number; pop?: number; tl?: number; industrial?: boolean; temperature?: 'frozen' | 'cold' | 'temperate' | 'hot' | 'boiling' };
 }
 
 const SPECTRAL = 'OBAFGKM';
@@ -136,16 +146,17 @@ const round = (n: number, places = 2) => Math.round(n * 10 ** places) / 10 ** pl
 
 // ───────────────────────────── tables and formulas ─────────────────────────────
 
-class Dice {
+/** The dice, read against the named formulas, modifier lists and tables of one part of a rules pack. */
+export class Dice<R extends { f: Record<string, string | number>; dm: Record<string, WhenDm[]> } = SystemRules> {
   constructor(
-    readonly rules: SystemRules,
+    readonly rules: R,
     readonly rng: Rng,
   ) {}
 
   /** A formula of the pack, by name. */
   f(name: string, vars: Vars = {}): number {
     const formula = this.rules.f[name];
-    if (formula === undefined) throw new Error(`The rules pack has no "${name}" for star systems`);
+    if (formula === undefined) throw new Error(`The rules pack has no "${name}" for star systems and their worlds`);
     return evaluate(formula, this.rng, vars);
   }
 
@@ -165,8 +176,13 @@ class Dice {
 
   /** The modifiers of a named list that apply. */
   dm(name: string, vars: Vars): number {
+    return this.sum(this.rules.dm[name] ?? [], vars);
+  }
+
+  /** The modifiers of a list that apply. */
+  sum(rows: WhenDm[], vars: Vars): number {
     let total = 0;
-    for (const row of this.rules.dm[name] ?? []) if (evaluate(row.when, this.rng, vars)) total += row.dm * (row.times ? evaluate(row.times, this.rng, vars) : 1);
+    for (const row of rows) if (evaluate(row.when, this.rng, vars)) total += row.dm * (row.times ? evaluate(row.times, this.rng, vars) : 1);
     return total;
   }
 
@@ -483,7 +499,7 @@ function finalAge(dice: Dice, mass: number): number {
   return lifespan + dice.f('subgiant', { L: lifespan, M: mass }) + dice.f('giant', { L: lifespan, M: mass });
 }
 
-function rollEccentricity(dice: Dice, vars: Vars, extraDm = 0): number {
+export function rollEccentricity(dice: Dice, vars: Vars, extraDm = 0): number {
   const roll = dice.d(2) + dice.dm('eccentricity', vars) + extraDm;
   const value = dice.roll(dice.row(dice.rules.eccentricity, roll).value);
   return round(Math.max(0, Math.min(0.999, value)), 3);
@@ -1128,6 +1144,10 @@ export function generateSystem(rules: SystemRules, rng: Rng, known?: KnownSystem
       moons: [],
       rings: 0,
       mainworld: slot.mainworld,
+      starCount: circled.length,
+      starMass: mass,
+      starLight: luminosity,
+      hzco,
     };
     world.hzDeviation = habitableZone(rules, slot.orbit, hzco).deviation;
     if (slot.anomaly) {
@@ -1165,11 +1185,22 @@ export function generateSystem(rules: SystemRules, rng: Rng, known?: KnownSystem
 }
 
 /**
- * The world best suited to be the mainworld of a system surveyed with none named: the rocky world
- * nearest the middle of its habitable zone (the larger of two equally near) or, failing any, a belt.
+ * The world best suited to be the mainworld of a system surveyed with none named. Where the worlds
+ * have been worked out in detail it is the rocky world easiest to live on (then the richest);
+ * otherwise the one nearest the middle of its habitable zone (the larger of two equally near).
+ * Failing any rocky world, a belt.
  */
 export function likelyMainworld(layout: SystemLayout): WorldInfo | undefined {
-  const best = (kind: WorldInfo['kind']) => layout.worlds.filter((w) => w.kind === kind).sort((a, b) => Math.abs(a.hzDeviation) - Math.abs(b.hzDeviation) || b.sizeValue - a.sizeValue)[0];
+  const best = (kind: WorldInfo['kind']) =>
+    layout.worlds
+      .filter((w) => w.kind === kind)
+      .sort(
+        (a, b) =>
+          (b.detail?.habitability ?? 0) - (a.detail?.habitability ?? 0) ||
+          (b.detail?.resources ?? 0) - (a.detail?.resources ?? 0) ||
+          Math.abs(a.hzDeviation) - Math.abs(b.hzDeviation) ||
+          b.sizeValue - a.sizeValue,
+      )[0];
   return best('terrestrial') ?? best('belt');
 }
 

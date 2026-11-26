@@ -154,6 +154,76 @@ export interface BodyData {
   solarDiameter?: number;
   luminosity?: number;
   temperature?: number;
+  /** The world itself in detail: what it is made of, its air, water, days, climate, geology and life. */
+  detail?: BodyDetail;
+}
+
+/** One thing wrong with a world's air: what it is, how bad, and how often. */
+export interface AirTaint {
+  code: string;
+  name: string;
+  severity?: number;
+  severityName?: string;
+  persistence?: number;
+  persistenceName?: string;
+}
+
+/** A world, moon or belt in detail, as a full survey records it. Everything is optional. */
+export interface BodyDetail {
+  /** Size, atmosphere and hydrographics as three digits, "867". */
+  sah?: string;
+  /** Diameter in km, what it is made of, density (Earth = 1), surface gravity in G, mass in Earths, escape velocity in km/s. */
+  km?: number;
+  composition?: string;
+  density?: number;
+  gravity?: number;
+  mass?: number;
+  escape?: number;
+  atm?: {
+    code: number;
+    name: string;
+    /** Pressure at the surface in bar, and the share of it that is oxygen. */
+    bar?: number;
+    ppo?: number;
+    /** Too little or too much oxygen to breathe. */
+    oxygen?: 'low' | 'high';
+    /** Subtype of an exotic, corrosive, insidious or unusual atmosphere, and the standing hazard of an insidious one. */
+    sub?: string;
+    subName?: string;
+    hazard?: string;
+    hazardName?: string;
+    taints?: AirTaint[];
+    /** The main gases, by percentage. */
+    gases?: { gas: string; pct: number }[];
+    /** Height in km over which the pressure falls to about a third. */
+    scale?: number;
+    /** Its oceans boiled away into the air. */
+    runaway?: boolean;
+    gear?: string;
+  };
+  hydro?: { code: number; pct: number; surface?: string; liquid?: string };
+  day?: {
+    /** Length of a turn on its axis in hours (negative when it turns backwards), and from noon to noon. */
+    hours: number;
+    solar?: number;
+    tilt: number;
+    /** Held with one face to "star" or "planet", turning in step with its "moon", or in a 3:2 "resonance". */
+    lock?: string;
+  };
+  /** Kelvin. */
+  temp?: { mean: number; high?: number; low?: number; albedo?: number; greenhouse?: number };
+  /** Height of the tides raised on it, in metres on open water. */
+  tide?: number;
+  seismic?: { residual: number; tidal: number; heating: number; total: number; activity?: string; plates?: number };
+  life?: { biomass: number; complexity: number; complexityName?: string; diversity: number; compatibility: number; sophonts?: 'living' | 'extinct' };
+  resources?: number;
+  habitability?: number;
+  /** A belt: its width in orbit numbers, what its bodies are made of (percent), bulk, worth, and its largest bodies. */
+  belt?: { span: number; m: number; s: number; c: number; other: number; bulk: number; resources: number; size1: number; sizeS: number };
+  /** A moon's path: distance in planetary diameters and km, period in hours. */
+  moon?: { pd: number; km: number; hours: number; ecc?: number; retro?: boolean; range?: string };
+  /** Rings: centre and width of each, in planetary diameters. */
+  ringSpans?: { centre: number; span: number }[];
 }
 
 export type BodyKind = 'star' | 'planet' | 'gasGiant' | 'belt' | 'moon' | 'station' | 'poi';

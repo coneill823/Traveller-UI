@@ -93,6 +93,8 @@ export interface WorldRules {
   tradeRoutes: { maxDistance: number; pairs: { from: string[]; to: string[] }[] };
   /** Detailed star systems: stars, orbits, worlds and moons. Without it, systems get a simple layout. */
   system?: SystemRules;
+  /** Each world of a system in detail: makeup, air, water, days, climate, geology and life. */
+  detail?: DetailRules;
 }
 
 /** A modifier that applies when a condition holds; `times` multiplies it by a value (per star, per object). */
@@ -154,6 +156,98 @@ export interface SystemRules {
     moon: (RollRow & { size?: string; roll?: string; giant?: boolean })[];
     giantMoon: (RollRow & { roll: string; giantAt?: number })[];
   };
+  dm: Record<string, WhenDm[]>;
+  f: Record<string, string | number>;
+}
+
+/** The air a table gives a world outright: its code, and for exotic air how thick it is and whether it irritates. */
+export interface AtmosphereResult {
+  atm: number;
+  density?: string;
+  /** Dense or thicker. */
+  thick?: boolean;
+  irritant?: 'yes' | 'maybe';
+  /** Close enough to its star for a further check on what is left of the air. */
+  furnace?: boolean;
+}
+
+/** A subtype of exotic, corrosive or insidious air. Pressure is `min` plus part of `span`, or the `bar` formula. */
+export interface AtmosphereSubtype extends RollRow {
+  code: string;
+  name: string;
+  density: string;
+  irritant?: boolean;
+  /** Corrosive at times: a standing irritant of the worst kind. */
+  attimes?: boolean;
+  min?: number;
+  span?: number;
+  bar?: string;
+  /** Far thicker than any air to breathe. */
+  extreme?: boolean;
+  /** A hazard (by code) an insidious atmosphere of this subtype always has. */
+  hazard?: string;
+}
+
+/**
+ * Tables and formulas for detailing a world. Formulas are strings in the language of `dicex.ts`;
+ * the names each may use are listed in `src/shared/rules/worlddetail.ts`.
+ */
+export interface DetailRules {
+  /** What a world is made of, by 2D and modifiers, and the density (Earth = 1) of each for 2D rolls of 2 to 12. */
+  composition: (RollRow & { id: string; name: string })[];
+  density: Record<string, number[]>;
+  /** Belts: shares of metallic, stony and icy bodies by 2D and modifiers, and the density column each kind uses. */
+  beltComposition: (RollRow & { m: string; s: string; c: string })[];
+  beltDensity: { m: string; s: string; c: string };
+  /** Where a moon circles, by 1D and modifiers: the band, its distance in planetary diameters, and the modifier to its eccentricity. */
+  moonOrbit: (RollRow & { range: string; pd: string; eccDm: number })[];
+  /**
+   * Atmosphere codes from 0 upward. `kind` is none, trace, air (nitrogen and oxygen), exotic, corrosive, insidious,
+   * unusual or gas. `breathable` air is spoiled only by its oxygen or a taint; `taintOn` is a roll for whether
+   * other air is tainted.
+   */
+  atmospheres: { code: number; name: string; kind: string; min?: number; span?: number; breathable?: boolean; tainted?: boolean; taintOn?: string; gear?: string }[];
+  /** Air outside the habitable zone: bands of distance from its centre (hotter is negative), each with results for rolls of 0 upward. */
+  zoneAtmospheres: { min?: number; max?: number; rows: AtmosphereResult[] }[];
+  /** What a world very close to its star keeps of its air, by 1D and modifiers; no `atm` leaves it as it was. */
+  furnace: (RollRow & { atm?: number })[];
+  subtypes: { exotic: AtmosphereSubtype[]; corrosive: AtmosphereSubtype[] };
+  /** Standing hazards of insidious air; `life` means something lives there. */
+  hazards: (RollRow & { code: string; name: string; life?: boolean })[];
+  /** Unusual atmospheres by a two-dice code (tens then units); `when` is what the world must be like, `combine` asks for two others. */
+  unusual: { roll: number; code: string; name: string; when?: string; bar?: string; combine?: boolean }[];
+  /**
+   * Taints by 2D and modifiers. `again` adds another roll; `oxygen` marks too little or too much of it, read as the
+   * taint coded `otherwise` where oxygen is not the question; `coldAs` is the taint it becomes on a cold world;
+   * `life` means something lives there.
+   */
+  taints: (RollRow & { code: string; name: string; again?: boolean; oxygen?: 'low' | 'high'; otherwise?: string; coldAs?: string; life?: boolean })[];
+  severity: (RollRow & { code: number; name: string })[];
+  persistence: (RollRow & { code: number; name: string })[];
+  /** What the air becomes when a greenhouse runs away, by 1D and modifiers. */
+  greenhouseCodes: (RollRow & { atm: number })[];
+  /** Gas mixes, hottest table first: use the first whose `above` (kelvin) the world's mean temperature reaches. A gas ending in * needs a dry world. */
+  gasMix: { above?: number; instead?: string; dm: WhenDm[]; rows: (RollRow & { exotic: string; corrosive: string; insidious: string })[] }[];
+  /** Liquids other than water that can fill a sea, with boiling and melting points in kelvin. */
+  liquids: { name: string; boil: number; melt: number; abundance: number }[];
+  /** Lowest and highest percentage of surface liquid for each hydrographics code. */
+  hydroRanges: [number, number][];
+  /** How the lesser of land and water is spread, by the roll named in `f`. */
+  surface: { roll: number; name: string }[];
+  tilt: (RollRow & { roll?: string; extreme?: boolean })[];
+  extremeTilt: (RollRow & { roll: string })[];
+  /** What tides have done to a world's spin, by 2D and modifiers. */
+  tidalLock: (RollRow & { times?: number; days?: string; retro?: boolean; lock?: string })[];
+  /** Climate bands of the basic temperature roll. */
+  climates: (RollRow & { id: string })[];
+  /** Albedo: the first row whose condition holds is rolled (`then` adjusts the result, called A), and every matching addition is added. */
+  albedo: { when: string; roll: string; then?: string }[];
+  albedoAdd: { when: string; roll: string }[];
+  /** Greenhouse: the first row whose condition holds turns the starting factor G into the final one; `R` is rolled first when given. */
+  greenhouse: { when: string; R?: string; f: string }[];
+  complexity: { code: number; name: string }[];
+  /** How restless the ground is, by its total stress. */
+  activity: (RollRow & { name: string })[];
   dm: Record<string, WhenDm[]>;
   f: Record<string, string | number>;
 }

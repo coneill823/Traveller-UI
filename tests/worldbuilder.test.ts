@@ -5,9 +5,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { formulaError } from '../src/shared/dicex';
-import type { RulePack, SystemRules } from '../src/shared/rulepack';
+import type { DetailRules, RulePack, SystemRules } from '../src/shared/rulepack';
 import { auToOrbit, generateSystem, orbitToAu, parseStar, type SystemLayout } from '../src/shared/rules/system';
 import { generateWorld } from '../src/shared/rules/world';
+import { detailSystem } from '../src/shared/rules/worlddetail';
 import type { Body, StarSystem } from '../src/shared/types';
 import { seededRng } from '../src/shared/util';
 import { splitStars } from '../src/server/actions/map';
@@ -163,6 +164,109 @@ describe.skipIf(!HAS_PACK)('star systems with the world builder pack', () => {
     }
   });
 
+  describe('each world in detail', () => {
+    const detail = pack.world?.detail as DetailRules;
+
+    it('has formulas and conditions the engine can read', () => {
+      const problems: string[] = [];
+      const check = (where: string, formula: string | number | undefined) => {
+        const problem = formula === undefined ? undefined : formulaError(formula);
+        if (problem) problems.push(`${where}: ${problem}`);
+      };
+      for (const [name, formula] of Object.entries(detail.f)) check(name, formula);
+      for (const [name, list] of Object.entries(detail.dm)) for (const row of list) (check(name, row.when), check(name, row.times));
+      for (const row of [...detail.albedo, ...detail.albedoAdd]) (check('albedo', row.when), check('albedo', row.roll));
+      for (const row of detail.albedo) check('albedo', row.then);
+      for (const row of detail.greenhouse) (check('greenhouse', row.when), check('greenhouse', row.f), check('greenhouse', row.R));
+      for (const t of detail.gasMix) for (const row of t.dm) (check('gas mix', row.when), check('gas mix', row.times));
+      for (const row of detail.unusual) (check('unusual', row.when), check('unusual', row.bar));
+      for (const row of detail.moonOrbit) check('moon orbit', row.pd);
+      for (const row of [...detail.tilt, ...detail.extremeTilt]) check('tilt', row.roll);
+      for (const row of detail.tidalLock) check('tidal lock', row.days);
+      for (const row of [...detail.subtypes.exotic, ...detail.subtypes.corrosive]) check('subtype', row.bar);
+      for (const row of detail.beltComposition) (check('belt', row.m), check('belt', row.s), check('belt', row.c));
+      for (const row of detail.atmospheres) check('taint', row.taintOn);
+      expect(problems).toEqual([]);
+    });
+
+    it('has tables of the shape the engine expects', () => {
+      // air: every code from none upward, and every result of the zone tables names one of them
+      detail.atmospheres.forEach((a, i) => expect(a.code).toBe(i));
+      const kinds = new Set(detail.atmospheres.map((a) => a.kind));
+      for (const kind of ['none', 'trace', 'air', 'exotic', 'corrosive', 'insidious', 'unusual', 'gas']) expect(kinds).toContain(kind);
+      for (const a of detail.atmospheres.filter((x) => x.kind === 'air' || x.kind === 'trace')) expect(a.span, a.name).toBeGreaterThan(0);
+      const lengths = new Set(detail.zoneAtmospheres.map((b) => b.rows.length));
+      expect(lengths.size).toBe(1);
+      for (const band of detail.zoneAtmospheres) {
+        for (const row of band.rows) {
+          expect(detail.atmospheres[row.atm], `air ${row.atm}`).toBeDefined();
+          // exotic air given outright has a subtype waiting for it, with and without an irritant as the dice may ask
+          if (row.density) {
+            const wants = row.irritant === 'maybe' ? [true, false] : [row.irritant === 'yes'];
+            for (const irritant of wants) expect(detail.subtypes.exotic.find((s) => s.density === row.density && !!s.irritant === irritant && !s.attimes), `${row.density} ${irritant}`).toBeDefined();
+          }
+        }
+      }
+      for (const row of detail.furnace) if (row.atm !== undefined) expect(detail.atmospheres[row.atm]).toBeDefined();
+      for (const row of detail.greenhouseCodes) expect(detail.atmospheres[row.atm]).toBeDefined();
+      // taints: the stand-ins they name exist, and the worst sits at the end of each scale
+      const codes = detail.taints.map((t) => t.code);
+      for (const t of detail.taints) {
+        if (t.otherwise) expect(codes).toContain(t.otherwise);
+        if (t.coldAs) expect(codes).toContain(t.coldAs);
+      }
+      expect(new Set(detail.taints.filter((t) => t.oxygen).map((t) => t.oxygen))).toEqual(new Set(['low', 'high']));
+      for (const list of [detail.severity, detail.persistence]) for (let i = 1; i < list.length; i++) expect(list[i].code).toBeGreaterThan(list[i - 1].code);
+      // makeup: a density for every roll of two dice
+      for (const made of detail.composition) expect(detail.density[made.id], made.id).toHaveLength(11);
+      for (const column of Object.values(detail.density)) for (let i = 1; i < column.length; i++) expect(column[i]).toBeGreaterThan(column[i - 1]);
+      for (const key of Object.values(detail.beltDensity)) expect(detail.density[key]).toBeDefined();
+      // water: a band for each code, end to end
+      expect(detail.hydroRanges).toHaveLength(11);
+      for (let i = 1; i < detail.hydroRanges.length; i++) expect(detail.hydroRanges[i][0]).toBe(detail.hydroRanges[i - 1][1] + 1);
+      // gas mixes: hottest first, with a last table for everything colder; liquids melt before they boil
+      for (let i = 1; i < detail.gasMix.length - 1; i++) expect(detail.gasMix[i].above!).toBeLessThan(detail.gasMix[i - 1].above!);
+      expect(detail.gasMix[detail.gasMix.length - 1].above).toBeUndefined();
+      for (const liquid of detail.liquids) expect(liquid.boil, liquid.name).toBeGreaterThan(liquid.melt);
+      // tides: the table ends in a full lock, with a lesser one before it
+      expect(detail.tidalLock.filter((r) => r.lock)).toHaveLength(2);
+      expect(detail.tidalLock[detail.tidalLock.length - 1].lock).toBeTruthy();
+    });
+
+    it('details whole systems without a figure out of place', () => {
+      const problems: string[] = [];
+      const seen = new Set<string>();
+      for (let seed = 1; seed <= 600; seed++) {
+        const known = seed % 3 === 0 ? { stars: ['G5 V'], gasGiants: 2, belts: 1, mainworld: { size: 7, atm: 6, hydro: 6, temperature: 'temperate' as const } } : undefined;
+        const rng = seededRng(seed);
+        const layout = generateSystem(rules, rng, known);
+        detailSystem(pack.world!, rng, layout, known);
+        for (const world of layout.worlds) {
+          expect(world.detail, `seed ${seed} ${world.designation}`).toBeDefined();
+          if (world.mainworld && known) expect(world.detail!.sah).toBe('766');
+          for (const d of [world.detail!, ...world.moons.flatMap((m) => (m.detail ? [m.detail] : []))]) {
+            const say = (text: string) => problems.push(`seed ${seed} ${world.designation}: ${text}`);
+            if (d.belt) {
+              if (d.belt.m + d.belt.s + d.belt.c + d.belt.other !== 100) say('belt shares');
+              continue;
+            }
+            for (const [name, value] of Object.entries({ km: d.km, gravity: d.gravity, mass: d.mass, bar: d.atm?.bar, ppo: d.atm?.ppo, pct: d.hydro?.pct, day: d.day?.hours, tilt: d.day?.tilt, mean: d.temp?.mean, high: d.temp?.high, low: d.temp?.low, stress: d.seismic?.total, resources: d.resources, habitability: d.habitability }))
+              if (value !== undefined && !Number.isFinite(value)) say(`${name} is ${value}`);
+            if (d.temp && (d.temp.low! > d.temp.mean || d.temp.high! < d.temp.mean)) say('temperatures out of order');
+            if (d.atm?.ppo !== undefined && d.atm.ppo > (d.atm.bar ?? 0)) say('more oxygen than air');
+            if (d.hydro && (d.hydro.pct < 0 || d.hydro.pct > 100)) say('water share');
+            if (d.day && (d.day.tilt < 0 || d.day.tilt > 180)) say('tilt');
+            if (d.atm) seen.add(detail.atmospheres[d.atm.code].kind);
+            if (d.life) seen.add('life');
+            if (d.day?.lock) seen.add(`lock ${d.day.lock}`);
+          }
+        }
+      }
+      expect(problems).toEqual([]);
+      for (const kind of ['none', 'trace', 'air', 'exotic', 'corrosive', 'insidious', 'unusual', 'gas', 'life', 'lock star', 'lock planet']) expect(seen, kind).toContain(kind);
+    });
+  });
+
   describe('on a table', () => {
     let table: Table;
     let sectorId: string;
@@ -195,6 +299,9 @@ describe.skipIf(!HAS_PACK)('star systems with the world builder pack', () => {
         expect(main).toHaveLength(1);
         expect(main[0].id).toBe(mainId);
         expect(main[0].data?.orbitNo).toBeGreaterThan(0);
+        // each world in detail, the mainworld as its profile has it
+        expect(main[0].data?.detail?.sah).toBe(before.uwp!.slice(1, 4));
+        for (const body of bodies.filter((b) => b.origin === 'survey' && b.kind !== 'star')) expect(body.data?.detail, body.name).toBeDefined();
         // the listing's count of worlds is kept
         if (before.ext?.worlds) expect(res.worlds).toBe(Number(before.ext.worlds));
       }

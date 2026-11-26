@@ -19,6 +19,7 @@ import { Notes } from '../../ui/Notes';
 import { systemLabel, WORLD_COLORS, type MapData, type SysInfo } from './mapData';
 import { fitTo, selectSystem } from './mapStore';
 import { SystemPanel, TradeCodes } from './SystemPanel';
+import { WorldDetail } from './WorldDetail';
 import { tradeCodesFor } from '../../../shared/rules/world';
 
 const KIND_LABEL: Record<BodyKind, string> = {
@@ -420,6 +421,7 @@ function BodyPanel({ body, info, bodies, onSelect }: { body: Body; info: SysInfo
       </div>
 
       {body.data && <SurveyFigures body={body} />}
+      {body.data?.detail && <WorldDetail body={body} detail={body.data.detail} />}
 
       {decoded.length > 0 && (
         <div className="section">

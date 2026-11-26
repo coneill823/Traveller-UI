@@ -3,6 +3,7 @@ import { SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, formatHex, parseHex, subsectorOf
 import { PRESETS } from '../../shared/knowledge';
 import { generateNames } from '../../shared/names';
 import { generateSystem, likelyMainworld, starsLabel, type KnownSystem, type SystemLayout } from '../../shared/rules/system';
+import { detailSystem } from '../../shared/rules/worlddetail';
 import { generateArea, generateWorld, suggestTradeRoutes, systemTradeCodes } from '../../shared/rules/world';
 import type { ParsedWorld } from '../../shared/sectorFormats';
 import type { Body, BodyData, BodyKind, Campaign, Id, RouteKind, Sector, StarSystem, TravelZone } from '../../shared/types';
@@ -222,8 +223,8 @@ action('system.rebuildBodies', (ctx, p) => {
   ctx.tx.update<StarSystem>(id, (s) => void delete s.survey);
 });
 
-/** What a system's listing already settles, for a detailed survey to build around. */
-export function knownFromListing(system: StarSystem): KnownSystem {
+/** What a system's listing already settles, for a detailed survey to build around. `codes` are its trade codes. */
+export function knownFromListing(system: StarSystem, codes: string[] = []): KnownSystem {
   const known: KnownSystem = {};
   const stars = splitStars(system.stars);
   if (stars.length) known.stars = stars;
@@ -238,6 +239,10 @@ export function knownFromListing(system: StarSystem): KnownSystem {
     const codes = (system.remarks ?? '').split(/\s+/);
     const temperature = codes.includes('Fr') ? 'frozen' : codes.includes('Co') || codes.includes('Tu') ? 'cold' : codes.includes('Ho') || codes.includes('Tr') ? 'hot' : undefined;
     known.mainworld = { size: uwp.size, atm: uwp.atm, temperature };
+    if (uwp.hydro >= 0) known.mainworld.hydro = uwp.hydro;
+    if (uwp.pop >= 0) known.mainworld.pop = uwp.pop;
+    if (uwp.tl >= 0) known.mainworld.tl = uwp.tl;
+    if (codes.includes('In')) known.mainworld.industrial = true;
   }
   const worlds = /^\d+$/.test(system.ext?.worlds ?? '') ? Number(system.ext!.worlds) : undefined;
   if (worlds !== undefined && pbg && worlds >= pbg.gasGiants + pbg.belts + 1) known.worlds = worlds;
@@ -273,6 +278,7 @@ export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout): v
     const kind: BodyKind = world.kind === 'gasGiant' ? 'gasGiant' : world.kind === 'belt' ? 'belt' : 'planet';
     const small = world.moons.filter((m) => m.size === 'S').length;
     const data: BodyData = { designation: world.designation, around: world.around, orbitNo: world.orbit, au: world.au, ecc: world.ecc || undefined, period: figure(world.period, 4), size: world.size, hz: world.hzDeviation, zone: world.zone };
+    if (world.detail && Object.keys(world.detail).length) data.detail = world.detail;
     if (world.giant) Object.assign(data, { diameter: world.giant.diameter, mass: world.giant.mass });
     if (world.anomaly) data.anomaly = world.anomaly;
     if (world.inclination !== undefined) data.inclination = world.inclination;
@@ -302,6 +308,7 @@ export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout): v
         const letter = String.fromCharCode(97 + n);
         const moonData: BodyData = { designation: `${world.designation} ${letter}`, size: moon.size, zone: world.zone, hz: world.hzDeviation };
         if (moon.giant) Object.assign(moonData, { diameter: moon.giant.diameter, mass: moon.giant.mass });
+        if (moon.detail && Object.keys(moon.detail).length) moonData.detail = moon.detail;
         tx.create('body', { systemId: system.id, parentId: id, kind: 'moon', orbit: n + 1, origin: 'survey', name: parentName ? `${parentName} ${letter}` : undefined, subtype: moon.giant ? GIANT_NAMES[moon.giant.code] : undefined, data: moonData });
       });
   }
@@ -322,11 +329,15 @@ export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout): v
 action('system.detail', (ctx, p) => {
   requireGm(ctx.me);
   const system = ctx.tx.need('system', check.id(p.id, 'id'));
-  const rules = worldRules(ctx).system;
+  const world = worldRules(ctx);
+  const rules = world.system;
   if (!rules) throw new ActionError('The installed rules have no tables for surveying a whole system');
   const seed = p.seed === undefined ? Math.floor(Math.random() * 2 ** 31) : check.int(p.seed, 'seed', { min: 0 });
-  const known = knownFromListing(system);
-  const layout = generateSystem(rules, seededRng(seed), known);
+  const known = knownFromListing(system, world.tradeCodes ? systemTradeCodes(system.uwp, system.remarks, world) : []);
+  const rng = seededRng(seed);
+  const layout = generateSystem(rules, rng, known);
+  // each world in detail, where the rules run to it
+  detailSystem(world, rng, layout, known);
   // with no mainworld listed, the likeliest world of the survey takes its place
   if (!known.mainworld) {
     const pick = likelyMainworld(layout);

@@ -22,7 +22,7 @@ belong somewhere private: either drop pack folders in here on the machine that r
 
 | File | Section | Used for |
 | --- | --- | --- |
-| `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation; under `system`, the tables for building a whole star system |
+| `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation; under `system`, the tables for building a whole star system; under `detail`, those for working each of its worlds out |
 | `tasks.json` | `tasks` | Difficulties, effect bands, characteristic modifiers |
 | `characters.json` | `characters` | Characteristics, skills and specialities, species, careers |
 | `gear.json` | `gear` | Personal weapons, armour and weapon traits; other equipment, special ammunition, and the rules for finding and buying things |
@@ -43,6 +43,12 @@ against, the modifiers that apply to each roll (`dm`) and a set of named figures
 header lists the names a formula can use, and it says which name is missing if a pack leaves one
 out. `tests/fixtures/systemRules.ts` is a complete, made-up example.
 
+A `detail` object beside it holds what is needed to work each world out: makeup and density,
+moons and rings, atmosphere codes with their subtypes, taints and gas mixes, water, days and tidal
+locks, climate, geology, life, and the ratings for resources and habitability. Its procedure is in
+`src/shared/rules/worlddetail.ts`, and `tests/fixtures/detailRules.ts` is a made-up example. A pack
+may carry `system` without `detail`: the survey then stops at orbits and sizes.
+
 Formulas and conditions are written as text, so a pack states how a figure is worked out rather
 than only listing values:
 
@@ -50,7 +56,7 @@ than only listing values:
 | --- | --- |
 | `2D`, `1D`, `D3`, `d10`, `3D6` | dice; a lone `D` is one six-sided die |
 | `+ - * / ^`, and `x` or `×` for multiplying | arithmetic |
-| `min max floor ceil round abs sqrt ln pow` | functions, as in `max(1, N)` |
+| `min max floor ceil round abs sqrt ln pow sin cos` | functions, as in `max(1, N)`; angles are in degrees |
 | `< <= > >= == !=`, `and`, `or`, `not` | conditions, which give 1 or 0 |
 | any other name | a value the engine supplies, such as `stars` or `age`; names may contain dots |
 
