@@ -37,6 +37,16 @@ export function readDice(plan: RollPlan, dice: number[]): number {
   return dice.reduce((n, d) => n + d, 0) + plan.add;
 }
 
+/**
+ * The result of a roll on a table, with the modifier from the situation. As a rule the modifier is simply
+ * added; on a D66 table marked for it, it goes on the first die, which cannot fall below 0.
+ */
+export function tableResult(table: Pick<ReferenceTable, 'dmOnFirstDie'>, plan: RollPlan, dice: number[], dm: number): number {
+  if (!plan.dm) return readDice(plan, dice);
+  if (table.dmOnFirstDie && plan.read === 'd66') return readDice(plan, [Math.max(0, (dice[0] ?? 1) + dm), dice[1] ?? 1]);
+  return readDice(plan, dice) + dm;
+}
+
 /** Whether a row's "on" covers a result: "7", "3-4" (or with a dash of any kind), "11+", "2-", or several separated by commas. */
 export function rowCovers(on: string | undefined, total: number): boolean {
   if (!on) return false;
@@ -82,6 +92,19 @@ export function searchTopics(topics: ReferenceTopic[], query: string): Reference
     const hay = [topic.title, topic.group, topic.source ?? '', ...(topic.text ?? []), ...(topic.tables ?? []).flatMap((t) => [t.title ?? '', ...t.columns, ...t.rows.flatMap((r) => r.cells)])].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   });
+}
+
+/** A list with more topics than this opens folded: one heading to a group, unfolded when chosen. */
+export const FOLD_ABOVE = 30;
+
+/**
+ * The groups of the topic list that are unfolded: those remembered from last time, or, with nothing
+ * remembered, all of them for a short list and none for a long one.
+ */
+export function openGroups(groups: { group: string; items: unknown[] }[], remembered?: string[]): Set<string> {
+  if (remembered) return new Set(remembered.filter((name) => groups.some((g) => g.group === name)));
+  const topics = groups.reduce((n, g) => n + g.items.length, 0);
+  return new Set(topics > FOLD_ABOVE ? [] : groups.map((g) => g.group));
 }
 
 /** Problems with a pack's topics that would trip the reference screen up: rows that no roll reaches, clashes, short rows. */

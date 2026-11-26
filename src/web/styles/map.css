@@ -703,6 +703,23 @@
   color: var(--text-faint);
   overflow-wrap: anywhere;
 }
+.library-folder.fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.library-folder.fold:hover {
+  color: var(--text-dim);
+}
+.library-folder.fold .count {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
 .library-item {
   display: flex;
   align-items: center;

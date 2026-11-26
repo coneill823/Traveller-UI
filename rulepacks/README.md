@@ -88,6 +88,9 @@ the list and one can rewrite another's topic.
   (2 or less), or several separated by commas. Each row has one cell fewer than there are headings.
 - Every result the dice alone can give must land on exactly one row. The tests check this for the
   installed packs.
+- On a D66 table, `"dmOnFirstDie": true` puts the modifier on the first die alone, for tables
+  whose results shift by tens; a first die below 0 counts as 0. Such a table may have rows
+  beyond 11 to 66 (`"01"`, `"73"`).
 - A table without a `roll` is a plain table: one cell for each heading, and no `on`.
 
 ## Star systems and formulas

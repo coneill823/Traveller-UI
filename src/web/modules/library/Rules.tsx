@@ -2,8 +2,8 @@
  * The rules reference in the library: topics of rule summaries from the installed rules packs,
  * filed under headings, with tables that can be rolled on from the shared dice.
  */
-import { useMemo, useState } from 'react';
-import { onLabel, readDice, rollPlan, rowFor, searchTopics } from '../../../shared/reference';
+import { useEffect, useMemo, useState } from 'react';
+import { onLabel, openGroups, rollPlan, rowFor, searchTopics, tableResult } from '../../../shared/reference';
 import type { ReferenceTable, ReferenceTopic } from '../../../shared/rulepack';
 import { act } from '../../net';
 import { Link } from '../../router';
@@ -22,21 +22,73 @@ export function useReference(query: string): { topics: ReferenceTopic[]; groups:
   }, [topics, query]);
 }
 
-export function RulesList({ groups, topicId }: { groups: { group: string; items: ReferenceTopic[] }[]; topicId?: string }) {
+const OPEN_KEY = 'traveller-ui.rules.open';
+
+/** The headings this viewer left unfolded last time, if the browser kept them. */
+function rememberedOpen(): string[] | undefined {
+  try {
+    const kept: unknown = JSON.parse(localStorage.getItem(OPEN_KEY) ?? 'null');
+    return Array.isArray(kept) ? kept.filter((name): name is string => typeof name === 'string') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The topics under their headings. A long list starts folded, one line to a heading; a heading unfolds when
+ * chosen, and the choice is remembered in this browser. A search shows every match, unfolded.
+ */
+export function RulesList({ groups, topicId, current, searching }: { groups: { group: string; items: ReferenceTopic[] }[]; topicId?: string; /** The heading the open topic is filed under. */ current?: string; searching?: boolean }) {
+  // undefined until the viewer folds or unfolds something: until then the list decides for itself
+  const [chosen, setChosen] = useState<Set<string> | undefined>(() => {
+    const kept = rememberedOpen();
+    return kept ? new Set(kept) : undefined;
+  });
+  const open = useMemo(() => chosen ?? openGroups(groups), [chosen, groups]);
+
+  const keep = (next: Set<string>) => {
+    setChosen(next);
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify([...next]));
+    } catch {
+      // not remembered, then; the list still works
+    }
+  };
+  // arriving at a topic unfolds its heading
+  useEffect(() => {
+    if (current && !open.has(current)) keep(new Set([...open, current]));
+  }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <>
-      {groups.map((g) => (
-        <div key={g.group}>
-          <div className="library-folder">{g.group}</div>
-          {g.items.map((topic) => (
-            <Link key={topic.id} to={`/library/rules/${topic.id}`} className={cx('library-item', topic.id === topicId && 'on')}>
-              <Icon name="book" size={13} />
-              <span className="grow">{topic.title}</span>
-              {topic.optional && <span className="tiny faint">optional</span>}
-            </Link>
-          ))}
-        </div>
-      ))}
+      {groups.map((g) => {
+        const shown = searching || open.has(g.group);
+        return (
+          <div key={g.group}>
+            {searching ? (
+              <div className="library-folder">{g.group}</div>
+            ) : (
+              <button
+                className="library-folder fold"
+                aria-expanded={shown}
+                onClick={() => keep(new Set(shown ? [...open].filter((name) => name !== g.group) : [...open, g.group]))}
+              >
+                <Icon name={shown ? 'chevronDown' : 'chevronRight'} size={10} />
+                <span className="grow">{g.group}</span>
+                <span className="count">{g.items.length}</span>
+              </button>
+            )}
+            {shown &&
+              g.items.map((topic) => (
+                <Link key={topic.id} to={`/library/rules/${topic.id}`} className={cx('library-item', topic.id === topicId && 'on')}>
+                  <Icon name="book" size={13} />
+                  <span className="grow">{topic.title}</span>
+                  {topic.optional && <span className="tiny faint">optional</span>}
+                </Link>
+              ))}
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -53,7 +105,7 @@ function Table({ topic, table }: { topic: ReferenceTopic; table: ReferenceTable 
     try {
       // the dice are rolled where everyone can see them; a modifier in the roll itself is applied here
       const rolled = await act<{ dice: number[] }>('dice.roll', { dice: plan.dice, label: `${topic.title}${table.title ? `: ${table.title}` : ''}`, dm: plan.read === 'sum' ? plan.add + (plan.dm ? dm : 0) : 0 });
-      const total = readDice(plan, rolled.dice) + (plan.dm ? dm : 0);
+      const total = tableResult(table, plan, rolled.dice, dm);
       setResult({ total, row: rowFor(table, total) });
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -70,7 +122,7 @@ function Table({ topic, table }: { topic: ReferenceTopic; table: ReferenceTable 
           <div className="grow" />
           {plan?.dm && (
             <label className="row tiny dim" style={{ gap: 4, alignItems: 'center' }}>
-              DM
+              {table.dmOnFirstDie ? 'DM on the first die' : 'DM'}
               <input type="number" value={dm} onChange={(e) => setDm(Math.max(-20, Math.min(20, Math.round(Number(e.target.value) || 0))))} style={{ width: 52 }} aria-label="Modifier" />
             </label>
           )}

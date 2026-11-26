@@ -1284,6 +1284,8 @@ export interface ReferenceTable {
   columns: string[];
   rows: { /** The results this row covers: "7", "3-4", "11+", "2-". */ on?: string; cells: string[] }[];
   note?: string;
+  /** For a D66 table whose modifier goes on the first die alone, so that +1 moves the result on by ten. A first die below 0 counts as 0. */
+  dmOnFirstDie?: boolean;
 }
 
 /** A topic of the rules reference: a rule in a few paragraphs, with any tables that go with it. */

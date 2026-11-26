@@ -167,7 +167,8 @@ Subsector-sized data (hexes 0101–0810) can be dropped into any of a sector's s
 
 - The **Library** has a **Rules** tab when an installed pack carries reference topics: rules summarised in a few paragraphs, filed under headings, with their tables. Optional rules are marked as such, and each topic names the book it comes from.
 - A table that is rolled on has a **Roll** button. The dice are the shared dice, so everyone sees them, and the row they land on lights up. Where a roll takes a modifier, type it in the box beside the button first.
-- The search box looks through titles, text and tables.
+- A long list of topics opens folded, one line to a heading with the number of topics under it. Click a heading to unfold it; what you leave open is remembered in your browser.
+- The search box looks through titles, text and tables, and shows every match unfolded.
 
 ### Combat
 

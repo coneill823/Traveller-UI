@@ -190,7 +190,7 @@ export function LibraryPage({ pageId, topicId }: { pageId?: string; /** Set (if 
           </div>
         )}
         <div className="library-pages">
-          {rules && <RulesList groups={reference.groups} topicId={topicId} />}
+          {rules && <RulesList groups={reference.groups} topicId={topicId} current={reference.topics.find((t) => t.id === topicId)?.group} searching={q.trim() !== ''} />}
           {rules && reference.groups.length === 0 && <div className="pad faint small">No topics match.</div>}
           {!rules && groups.map((g) => (
             <div key={g.folder}>

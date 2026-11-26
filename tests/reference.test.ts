@@ -1,6 +1,6 @@
 /** The rules reference: reading a table's roll, finding the row a result lands on, searching topics. */
 import { describe, expect, it } from 'vitest';
-import { onLabel, readDice, rollPlan, rowCovers, rowFor, searchTopics, topicProblems } from '../src/shared/reference';
+import { FOLD_ABOVE, onLabel, openGroups, readDice, rollPlan, rowCovers, rowFor, searchTopics, tableResult, topicProblems } from '../src/shared/reference';
 import { mergePacks, type ReferenceTopic, type RulePack } from '../src/shared/rulepack';
 import { hasPack, HAS_CORE_RULES, loadPacks } from './helpers';
 
@@ -53,6 +53,14 @@ describe('the rules reference', () => {
     expect([2, 4, 5, 8, 9, 11, 12, 15].map((n) => rowFor(sky, n))).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
     expect(rowFor(topics[0].tables![1], 66)).toBe(2);
     expect(rowFor(topics[0].tables![1], 37)).toBe(-1);
+    // the modifier is added to the total, or on a table marked for it to the first die of a D66
+    expect(tableResult({}, rollPlan('2D + DM')!, [3, 4], -2)).toBe(5);
+    expect(tableResult({}, rollPlan('2D')!, [3, 4], -2)).toBe(7);
+    expect(tableResult({}, rollPlan('D66 + DM')!, [3, 4], 2)).toBe(36);
+    expect(tableResult({ dmOnFirstDie: true }, rollPlan('D66 + DM')!, [3, 4], 2)).toBe(54);
+    expect(tableResult({ dmOnFirstDie: true }, rollPlan('D66 + DM')!, [6, 1], 3)).toBe(91);
+    expect(tableResult({ dmOnFirstDie: true }, rollPlan('D66 + DM')!, [2, 5], -4)).toBe(5);
+    expect(tableResult({ dmOnFirstDie: true }, rollPlan('2D + DM')!, [2, 5], -4)).toBe(3);
     expect(['4-', '5–8', '9-11', '12+', '7', '2, 12', '-3 - -1', undefined].map(onLabel)).toEqual(['4 or less', '5–8', '9–11', '12+', '7', '2, 12', '-3–-1', '']);
   });
 
@@ -81,6 +89,16 @@ describe('the rules reference', () => {
       'b/odd: cannot read the roll "whenever"',
       'c: nothing in it',
     ]);
+  });
+
+  it('folds a long list of topics and leaves a short one open', () => {
+    const short = [{ group: 'Voyages', items: [1, 2] }, { group: 'Honour', items: [3] }];
+    expect([...openGroups(short)]).toEqual(['Voyages', 'Honour']);
+    const long = [{ group: 'Voyages', items: Array.from({ length: FOLD_ABOVE }, (_, i) => i) }, { group: 'Honour', items: [0] }];
+    expect([...openGroups(long)]).toEqual([]);
+    // what the viewer left open comes back, less any heading that is no longer there
+    expect([...openGroups(long, ['Honour', 'Gone'])]).toEqual(['Honour']);
+    expect([...openGroups(short, [])]).toEqual([]);
   });
 
   it('lets one pack add topics to another', () => {
