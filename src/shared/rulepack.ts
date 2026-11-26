@@ -254,6 +254,16 @@ export interface HullConfigDef {
   /** Fuel scoops come with the hull. */
   fuelScoop?: boolean;
   noArmour?: boolean;
+  /** Multiplier on armour tonnage: awkward shapes need more plate for the same protection. */
+  armourMult?: number;
+  /** Price per ton in place of the standard hull price (a hollowed-out planetoid). */
+  costPerTon?: number;
+  /** Percentage of the hull that can be built into; the rest is solid. */
+  usablePct?: number;
+  /** Protection the hull gives before any armour is added. */
+  armourBonus?: number;
+  /** Cannot be built as a specialised hull (reinforced, light and so on). */
+  noOptions?: boolean;
   note?: string;
 }
 
@@ -270,7 +280,63 @@ export interface PartOptionDef {
   /** Computers: extra Processing for Jump Control software. */
   jumpBonus?: number;
   suffix?: string;
+  /** Only on hulls over, or up to, this tonnage. */
+  overTons?: number;
+  maxTons?: number;
+  /** Options that cannot be combined with this one. */
+  excludes?: string[];
+  /** Catalogue rows it can be applied to; any when absent. */
+  appliesTo?: string[];
+  /** Size and price changes to the part it is fitted to. */
+  tonsMult?: number;
+  tonsAdd?: number;
+  /** Smallest size the part can then be, by hull tonnage. */
+  minTonsByHull?: { maxHull: number; tons: number }[];
+  costFlat?: number;
+  /** Credits per ton of the part (or per ton of fuel carried, for tank options). */
+  costPerTon?: number;
+  powerMult?: number;
+  /** Drives: multiplier on the rating actually delivered, rounded down. */
+  ratingMult?: number;
+  /** Raises the tech level needed by this much (a spinal mount built ahead of its time). */
+  tlAdd?: number;
+  /** Hulls: multiplier on the heaviest armour that can be fitted, and on basic power needs. */
+  armourMaxMult?: number;
+  basicPowerMult?: number;
   note?: string;
+}
+
+/** How far ahead of, or behind, its normal tech level a component is built. */
+export interface GradeDef {
+  id: string;
+  name: string;
+  /** Added to the component's tech level. */
+  tlShift: number;
+  /** Percentage change in tonnage. */
+  tonsPct?: number;
+  costMult: number;
+  advantages?: number;
+  disadvantages?: number;
+}
+
+/** An advantage or disadvantage a customised component can be given. Percentages add up. */
+export interface ModDef {
+  id: string;
+  name: string;
+  /** What it applies to: mdrive, rdrive, jdrive, plant or weapon (mounts and screens). */
+  kinds: string[];
+  advantage: boolean;
+  /** Advantage or disadvantage slots it uses; one unless stated. */
+  slots?: number;
+  tonsPct?: number;
+  powerPct?: number;
+  outputPct?: number;
+  fuelPct?: number;
+  /** Cannot be taken more than once. */
+  once?: boolean;
+  /** Not for weapons in turrets and fixed mounts. */
+  notTurrets?: boolean;
+  effect?: string;
 }
 
 export interface ShipArmourDef {
@@ -283,6 +349,10 @@ export interface ShipArmourDef {
   /** Protection cannot exceed the design's TL, and/or a flat cap. */
   maxByTl?: boolean;
   max?: number;
+  /** With `maxByTl`, protection may exceed the tech level by this much. */
+  maxTlPlus?: number;
+  /** Priced per ton of armour instead of as a share of the hull cost. */
+  costPerTon?: number;
 }
 
 export interface DriveRules {
@@ -299,6 +369,13 @@ export interface DriveRules {
   minHull?: number;
   /** Minimum TL for rating 1, 2, 3... */
   tl: number[];
+  /** A rating-0 drive: enough to hold station, no more. */
+  zero?: { tonsPct: number; tl: number; powerMult?: number; fuelTonsPerHour?: number };
+  /** Reaction drives: fuel burned per hour, as a percentage of hull tonnage per point of Thrust. */
+  fuelPctPerHour?: number;
+  options?: PartOptionDef[];
+  name?: string;
+  note?: string;
 }
 
 export interface PlantDef {
@@ -307,6 +384,12 @@ export interface PlantDef {
   tl: number;
   powerPerTon: number;
   costPerTon: number;
+  /** Cannot deliver the burst of power a jump drive needs. */
+  noJump?: boolean;
+  /** Fuel by its own measure (tons per ton of plant every `fuelWeeks`) instead of the usual share of its size. */
+  fuelTonsPerTon?: number;
+  fuelWeeks?: number;
+  note?: string;
 }
 
 export interface BridgeTypeDef {
@@ -327,6 +410,8 @@ export interface ShipComputerDef {
   tl: number;
   processing: number;
   cost: number;
+  /** A computer core: runs Jump Control on top of its Processing, with that software included. */
+  core?: boolean;
 }
 
 export interface ShipSensorDef {
@@ -370,6 +455,15 @@ export interface MountDef {
   /** Only takes weapons whose `mount` matches. */
   accepts?: string;
   gunner?: boolean;
+  /** Gunners on a warship, where that differs from one per mount. */
+  gunnersMilitary?: number;
+  /** Hardpoints taken (one unless stated), and firmpoints on a small craft. */
+  hardpoints?: number;
+  firmpoints?: number;
+  /** A spinal mount: sized by its weapon, in multiples of the weapon's base size (`rating`). */
+  variable?: boolean;
+  /** Not for hulls of this tonnage or less. */
+  overTons?: number;
   note?: string;
 }
 
@@ -386,6 +480,18 @@ export interface ShipWeaponDef {
   mount?: string;
   ammo?: string;
   defensive?: boolean;
+  /** DM to attack rolls from the weapon's own handling. */
+  attackDm?: number;
+  /** Damage is multiplied by this after armour (barbettes, bays and spinal mounts). */
+  multiple?: number;
+  /** Attacks or salvoes carried before reloading, and missiles launched in each salvo. */
+  magazine?: number;
+  salvo?: number;
+  /** Extra tons when fitted to a small craft's firmpoint. */
+  firmpointTons?: number;
+  /** Spinal weapons: tons at base size and the largest that can be built. Power, damage dice and cost are per base size. */
+  spinal?: { baseTons: number; maxTons: number };
+  note?: string;
 }
 
 /**
@@ -393,13 +499,15 @@ export interface ShipWeaponDef {
  *  - unit: `qty` copies of fixed size;
  *  - tons: the designer picks a tonnage;
  *  - hull: a percentage of the hull;
- *  - docking: sized from the tonnage of the craft carried (`rating`).
+ *  - docking: sized from the tonnage of the craft carried (`rating`);
+ *  - capacity: sized from something else it serves (`rating`): craft launched, cargo slung, fuel carried;
+ *  - plant: a percentage of the power plant.
  */
 export interface FittingDef {
   id: string;
   name: string;
   group: string;
-  size: 'unit' | 'tons' | 'hull' | 'docking';
+  size: 'unit' | 'tons' | 'hull' | 'docking' | 'capacity' | 'plant';
   tl?: number;
   unitTons?: number;
   unitCost?: number;
@@ -430,6 +538,44 @@ export interface FittingDef {
   builtInWhen?: string;
   /** Useless on a hull that cannot enter atmosphere. */
   needsAtmosphere?: boolean;
+  /** Hull-sized fittings: tons added on top of the percentage. */
+  plusTons?: number;
+  /** Capacity fittings: tons taken per ton served, what is served, and whether to round up. */
+  capacityMult?: number;
+  capacityLabel?: string;
+  capacityRound?: boolean;
+  costPerCapacity?: number;
+  /** Capacity may not exceed this percentage of the hull. */
+  maxCapacityHullPct?: number;
+  /** Adds this fraction of the basic hull cost (a pressure hull multiplies it many times over). */
+  hullCostAdd?: number;
+  /** Adds this percentage of the hull cost for each percent of the hull served; `fullPercent` counts whole percents only. */
+  hullCostPerCapacityPct?: number;
+  fullPercent?: boolean;
+  /** Plant-sized fittings: percentage of the power plant's tonnage and cost. */
+  plantPct?: number;
+  /** Power generated (solar), per unit or per ton, and power held in reserve (batteries). */
+  unitOutput?: number;
+  outputPerTon?: number;
+  storePerTon?: number;
+  /** Unit fittings: no more than this percentage of the hull tonnage in units. */
+  maxQtyHullPct?: number;
+  /** Only on hulls over, or up to, this tonnage. */
+  overTons?: number;
+  maxHull?: number;
+  /** Fittings (by id) that cannot be combined with this one. */
+  excludes?: string[];
+  /** Hardpoints taken, each. */
+  hardpoints?: number;
+  /** Gunners needed, each: on a commercial ship and on a warship. */
+  gunners?: number;
+  gunnersMilitary?: number;
+  /** Protection added to the hull's armour. */
+  armourBonus?: number;
+  /** Can be built ahead of or behind its tech level, with this kind of advantages. */
+  custom?: string;
+  /** Extra people who can be carried in cramped conditions (barracks, brig). */
+  troops?: number;
   note?: string;
 }
 
@@ -444,9 +590,26 @@ export interface StockDesign {
   /** Figures printed with the design, for reference. */
   listed?: { cost: number; hull?: number; cargo?: number };
   noDiscount?: boolean;
+  crewing?: 'commercial' | 'military';
+  /** Which book the design is from, for grouping the catalogue. */
+  source?: string;
   summary?: string;
   note?: string;
   parts: Omit<import('./types').DesignPart, 'id'>[];
+}
+
+/** Crew numbers by ship size, for a commercial ship and for a warship. */
+export interface CrewEstablishment {
+  pilots: { commercial: number; military: number };
+  /** Commercial ships from this tonnage carry a captain who is not one of the other crew; warships always do. */
+  captainFromTons: number;
+  maintenancePerTons: { commercial: number; military: number };
+  adminPerTons: { commercial: number; military: number };
+  sensors: { perTons: number; commercial: number; military: number };
+  officerPerCrew: { commercial: number; military: number };
+  /** Large ships need proportionally fewer hands in these roles. */
+  reductions: { fromTons: number; mult: number }[];
+  reducedRoles: string[];
 }
 
 export interface ShipyardDef {
@@ -460,6 +623,10 @@ export interface ShipRules {
   hull: {
     costPerTon: number;
     tonsPerHullPoint: number;
+    /** Very large hulls are sturdier for their size: tons per Hull point from each tonnage up. */
+    pointBands?: { fromTons: number; tonsPerPoint: number }[];
+    /** Armour takes more room on small hulls: multiplier on armour tonnage by hull size. */
+    armourSizeMult?: { maxHull: number; mult: number }[];
     minTons: number;
     maxTons: number;
     sizes: number[];
@@ -473,11 +640,15 @@ export interface ShipRules {
   armour: ShipArmourDef[];
   mdrive: DriveRules;
   jdrive: DriveRules;
+  /** Reaction drives: rockets, burning fuel instead of drawing power. */
+  rdrive?: DriveRules;
   plants: PlantDef[];
   power: { basicPct: number };
-  fuel: { plantPct: number; plantMinTons: number; plantWeeks: number };
+  fuel: { plantPct: number; plantMinTons: number; plantWeeks: number; options?: PartOptionDef[] };
   bridge: {
     sizes: { maxHull: number; tons: number }[];
+    /** Beyond the table: extra tons for every further `perTons` of hull above `aboveTons`. */
+    extra?: { aboveTons: number; perTons: number; tons: number };
     costPer100Tons: number;
     types: BridgeTypeDef[];
     options: PartOptionDef[];
@@ -485,10 +656,20 @@ export interface ShipRules {
   computers: ShipComputerDef[];
   computerOptions: PartOptionDef[];
   sensors: ShipSensorDef[];
+  sensorOptions?: PartOptionDef[];
   software: ShipSoftwareDef[];
   mounts: MountDef[];
+  mountOptions?: PartOptionDef[];
   weapons: ShipWeaponDef[];
-  hardpoints: { perTons: number; firmpoints: { maxHull: number; points: number }[]; firmpointNote?: string };
+  hardpoints: {
+    perTons: number;
+    firmpoints: { maxHull: number; points: number }[];
+    firmpointNote?: string;
+    /** Weapons on a firmpoint draw this percentage of their usual Power, rounded up. */
+    firmpointPowerPct?: number;
+    /** How many of a small craft's firmpoints can carry a turret. */
+    firmpointTurrets?: number;
+  };
   fittings: FittingDef[];
   crew: {
     roles: { id: string; name: string; salary: number }[];
@@ -497,8 +678,19 @@ export interface ShipRules {
     stewardPerHigh: number;
     stewardPerMiddle: number;
     skillBonusPct?: number;
+    /** The fuller establishment for larger and military ships. Absent, only the core roles are worked out. */
+    establishment?: CrewEstablishment;
   };
-  costs: { standardDiscountPct: number; maintenanceDivisor: number };
+  costs: {
+    standardDiscountPct: number;
+    maintenanceDivisor: number;
+    /** A naval architect's fee for a new design, as a percentage of its cost. */
+    architectPct?: number;
+    /** Higher-tech yards build faster: percentage of the usual time, from each tech level up. */
+    buildTimeByTl?: { tl: number; pct: number }[];
+  };
+  /** Components built ahead of or behind their tech level. */
+  customising?: { grades: GradeDef[]; mods: ModDef[] };
   /** Keyed by the starport table's `shipyard` value. */
   shipyards: Record<string, ShipyardDef>;
   usedShips?: { roll: [number, number]; age: string; discountPct: number; quirks: number }[];

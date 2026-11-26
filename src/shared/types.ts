@@ -354,7 +354,7 @@ export interface ShipAlert {
 
 // ───────────────────────────── ship design ─────────────────────────────
 
-export type PartKind = 'armour' | 'mdrive' | 'jdrive' | 'plant' | 'fuel' | 'bridge' | 'computer' | 'sensors' | 'software' | 'mount' | 'fitting' | 'craft' | 'custom';
+export type PartKind = 'armour' | 'mdrive' | 'rdrive' | 'jdrive' | 'plant' | 'fuel' | 'bridge' | 'computer' | 'sensors' | 'software' | 'mount' | 'fitting' | 'craft' | 'custom';
 
 /**
  * One line of a ship design. `key` names a row of the rules pack's parts catalogue; how a part
@@ -375,6 +375,9 @@ export interface DesignPart {
   /** Credits (craft and custom lines). */
   cost?: number;
   power?: number;
+  /** Built ahead of or behind its tech level: a grade from the rules, and the advantages or disadvantages chosen for it. */
+  grade?: string;
+  mods?: string[];
 }
 
 /**
@@ -397,6 +400,8 @@ export interface ShipSpec {
   cargoAt?: number;
   /** Key of the stock design this started from. */
   stock?: string;
+  /** Crewed to commercial standards (the default) or as a warship. */
+  crewing?: 'commercial' | 'military';
 }
 
 /** A ship design on the drawing board: drafted, shown to the party, signed off, then built. */

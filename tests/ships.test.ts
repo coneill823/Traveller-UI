@@ -96,7 +96,7 @@ describe.skipIf(!HAS_CORE_RULES)('ship design from the core pack', () => {
     const add = (spec: ShipSpec, part: Omit<DesignPart, 'id'>): ShipSpec => ({ ...spec, parts: [...spec.parts, { ...part, id: `x${spec.parts.length}` }] });
     const trader = stock('freeTrader');
     expect(codes(add(trader, { kind: 'fitting', key: 'stateroom', qty: 30 }), 'error')).toEqual(['tonnage']);
-    expect(codes(add(trader, { kind: 'jdrive', rating: 2 }), 'error')).toContain('drive-dup');
+    expect(codes(add(trader, { kind: 'jdrive', rating: 2 }), 'info')).toContain('drive-backup');
     expect(codes(add(trader, { kind: 'mount', key: 'turret3', qty: 3, weapons: [] }), 'error')).toContain('hardpoints');
     expect(codes(add(trader, { kind: 'mount', key: 'turret1', weapons: ['beam', 'beam'] }), 'error')).toContain('mount-slots');
     expect(codes(add(trader, { kind: 'mount', key: 'turret2', weapons: ['particle'] }), 'error')).toContain('mount-weapon');

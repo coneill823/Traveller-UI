@@ -67,9 +67,13 @@ export function defaultOutlineKey(spec: Pick<ShipSpec, 'hull'>): string {
     case 'dispersed':
       return 'lattice';
     case 'sphere':
+    case 'planetoid':
+    case 'buffered':
       return 'sphere';
+    case 'close':
+      return small ? 'pod' : 'dagger';
     default:
-      return small ? 'pod' : 'hauler';
+      return small ? 'pod' : spec.hull.tons >= 5000 ? 'slab' : 'hauler';
   }
 }
 

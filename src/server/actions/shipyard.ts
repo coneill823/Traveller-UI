@@ -9,7 +9,7 @@ import { CAMPAIGN_ID } from './core';
 import { adjustFunds, balanceOf, canManage } from './inventory';
 import { action, ActionError, check, requireGm, type ActionCtx } from './registry';
 
-const PART_KINDS: readonly PartKind[] = ['armour', 'mdrive', 'jdrive', 'plant', 'fuel', 'bridge', 'computer', 'sensors', 'software', 'mount', 'fitting', 'craft', 'custom'];
+const PART_KINDS: readonly PartKind[] = ['armour', 'mdrive', 'rdrive', 'jdrive', 'plant', 'fuel', 'bridge', 'computer', 'sensors', 'software', 'mount', 'fitting', 'craft', 'custom'];
 const PATH_DATA = /^[MmLlHhVvCcSsQqTtAaZz0-9eE,.\s+-]+$/;
 
 function shipRules(ctx: ActionCtx): ShipRules {
@@ -30,6 +30,8 @@ function cleanPart(value: unknown, name: string): DesignPart {
   if (p.name !== undefined) part.name = check.str(p.name, `${name}.name`, { min: 0, max: 120 });
   if (p.cost !== undefined) part.cost = check.num(p.cost, `${name}.cost`, { min: 0, max: 1e12 });
   if (p.power !== undefined) part.power = check.num(p.power, `${name}.power`, { min: 0, max: 1_000_000 });
+  if (p.grade !== undefined) part.grade = check.str(p.grade, `${name}.grade`, { max: 40 });
+  if (p.mods !== undefined) part.mods = check.arr(p.mods, `${name}.mods`, (v, n) => check.str(v, n, { max: 40 }), 6);
   return part;
 }
 
@@ -67,6 +69,7 @@ function cleanSpec(value: unknown): ShipSpec {
     ...(outline ? { outline } : {}),
     ...(v.cargoAt !== undefined ? { cargoAt: check.int(v.cargoAt, 'spec.cargoAt', { min: 0, max: 300 }) } : {}),
     ...(stock ? { stock } : {}),
+    ...(v.crewing === 'military' || v.crewing === 'commercial' ? { crewing: v.crewing } : {}),
   };
 }
 

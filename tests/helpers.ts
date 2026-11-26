@@ -22,13 +22,34 @@ export function loadCorePack(): RulePack {
   return pack;
 }
 
+/** True when the named pack is installed beside the core one. */
+export function hasPack(name: string): boolean {
+  return fs.existsSync(path.join(RULEPACK_DIR, name, 'pack.json'));
+}
+
+/** Packs read straight from disk and layered in the order given. */
+export function loadPacks(...names: string[]): RulePack {
+  let pack: RulePack = { packs: [] };
+  for (const name of names) {
+    const dir = path.join(RULEPACK_DIR, name);
+    for (const file of fs.readdirSync(dir).sort()) {
+      if (file.endsWith('.json') && file !== 'pack.json') pack = mergePacks(pack, { packs: [], [path.basename(file, '.json')]: JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) } as RulePack);
+    }
+  }
+  return pack;
+}
+
 export function testConfig(overrides: Partial<Config> = {}): Config {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traveller-ui-test-'));
+  // The server under test gets the core pack alone, whatever else is installed, so expectations hold.
+  const rulepackDir = path.join(dataDir, 'rulepacks');
+  fs.mkdirSync(rulepackDir);
+  if (HAS_CORE_RULES) fs.cpSync(path.join(RULEPACK_DIR, 'mgt2-core'), path.join(rulepackDir, 'mgt2-core'), { recursive: true });
   return {
     port: 0,
     host: '127.0.0.1',
     dataDir,
-    rulepackDir: RULEPACK_DIR,
+    rulepackDir,
     webDir: path.join(dataDir, 'no-web'),
     gmPassword: undefined,
     wiki: { branch: 'main', pollSeconds: 3600, atlasFolder: 'Atlas' },
