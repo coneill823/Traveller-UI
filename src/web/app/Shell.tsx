@@ -10,6 +10,7 @@ import { InventoryPage } from '../modules/inventory/InventoryPage';
 import { TradePage } from '../modules/trade/TradePage';
 import { ShipyardPage } from '../modules/shipyard/ShipyardPage';
 import { CombatPage } from '../modules/combat/CombatPage';
+import { ShipPage } from '../modules/shipops/ShipPage';
 import { LibraryPage } from '../modules/library/LibraryPage';
 import { MapPage } from '../modules/map/MapPage';
 import { ObjectivesPage } from '../modules/objectives/ObjectivesPage';
@@ -32,6 +33,7 @@ const NAV: NavItem[] = [
   { id: 'combat', label: 'Combat', icon: 'sword' },
   { id: 'inventory', label: 'Cargo', icon: 'package' },
   { id: 'trade', label: 'Trade', icon: 'coins' },
+  { id: 'ship', label: 'Ship', icon: 'ship' },
   { id: 'shipyard', label: 'Yard', icon: 'wrench' },
   { id: 'objectives', label: 'Goals', icon: 'target' },
   { id: 'library', label: 'Library', icon: 'book' },
@@ -210,6 +212,9 @@ export function Shell() {
       break;
     case 'combat':
       content = <CombatPage encounterId={route.parts[1]} />;
+      break;
+    case 'ship':
+      content = <ShipPage parts={route.parts} />;
       break;
     case 'objectives':
       content = <ObjectivesPage />;

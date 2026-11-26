@@ -505,6 +505,113 @@ export interface ShipRules {
   designs: StockDesign[];
 }
 
+// ───────────────────────────── space combat ─────────────────────────────
+
+export type BattleStep = 'manoeuvre' | 'attack' | 'actions';
+
+export interface SpaceRange {
+  id: string;
+  name: string;
+  distance: string;
+  /** Thrust needed to move one band from here, closer or further. */
+  thrust: number;
+  attackDm?: number;
+  /** Ships this close fight by the dogfighting rules instead. */
+  dogfight?: boolean;
+  example?: string;
+}
+
+export interface SpaceDuty {
+  id: string;
+  name: string;
+  /** Only one crew member can hold it. */
+  single?: boolean;
+  skill?: string;
+  /** Held at a particular turret or barbette. */
+  mount?: boolean;
+  note: string;
+}
+
+export interface SpaceAction {
+  id: string;
+  name: string;
+  /** Duty id, or "any". */
+  duty: string;
+  step: BattleStep | 'reaction';
+  check?: { skill: string; target: number; char?: string };
+  /** Takes a variable amount of Thrust (`thrust`) or a fixed amount (`thrustCost`). */
+  thrust?: boolean;
+  thrustCost?: number;
+  /** Is aimed at another ship, a weapon mount, a salvo in flight or a damaged location. */
+  target?: boolean;
+  weapon?: boolean;
+  salvo?: boolean;
+  location?: boolean;
+  repair?: boolean;
+  lock?: boolean;
+  initiative?: boolean;
+  note: string;
+}
+
+/** What a critical hit of one severity does. `text` is for the crew; the rest is applied automatically. */
+export interface CriticalEffect {
+  text: string;
+  damageDice?: number;
+  armourLoss?: number;
+  armourLossD3?: number;
+  armourLossDice?: number;
+  powerLossPct?: number;
+  fuelLossPct?: number;
+  fuelLossDicePct?: number;
+  thrustLoss?: number;
+  thrustZero?: boolean;
+  jumpDisabled?: boolean;
+  /** Raises the severity of the Hull location by this much, or by this many dice. */
+  hullSeverity?: number;
+  hullSeverityDice?: number;
+}
+
+export interface SpaceRules {
+  roundMinutes: number;
+  steps: { id: BattleStep; name: string; note: string }[];
+  initiative: { note: string };
+  ranges: SpaceRange[];
+  attack: {
+    target: number;
+    skill: string;
+    char: string;
+    pilotFiringDm: number;
+    targetSizeTons: number;
+    targetSizeMaxDm: number;
+    sensorLockDm: number;
+    calledShotDm: number;
+    calledShotMaxRange: string;
+    /** DM by weapon id. */
+    weaponDm: Record<string, number>;
+    extraWeaponPerDie: number;
+    /** Weapons whose damage is multiplied once armour has been taken off. */
+    afterArmourMultiplier: Record<string, number>;
+  };
+  duties: SpaceDuty[];
+  actions: SpaceAction[];
+  criticals: {
+    effectAtLeast: number;
+    severityOffset: number;
+    /** A Severity 1 critical for every this-much percent of starting Hull lost. */
+    sustainedPct: number;
+    maxSeverity: number;
+    /** Dice of damage when a location already at maximum severity is hit again. */
+    overflowDice: number;
+    locations: { roll: number; id: string; name: string }[];
+    effects: Record<string, CriticalEffect[]>;
+  };
+  repair: { baseTarget: number; lastsHoursDice: number; note: string };
+  missiles: { perTurret: number; refillCost: number; flight: { range: string; rounds: number }[]; maxRounds: number; dmPerMissile: number; distantDm: number; note: string };
+  sand: { perTurret: number; refillCost: number };
+  scale?: Record<string, number>;
+  dogfight?: { note: string };
+}
+
 export interface RulePack {
   packs: PackMeta[];
   world?: WorldRules;
@@ -514,6 +621,7 @@ export interface RulePack {
   combat?: CombatRules;
   trade?: TradeRules;
   ships?: ShipRules;
+  space?: SpaceRules;
   [section: string]: unknown;
 }
 

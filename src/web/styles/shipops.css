@@ -1,0 +1,351 @@
+/* ───────── ship status and battle stations ───────── */
+.pad {
+  padding: 10px 12px;
+  margin: 0;
+}
+.form-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.ship-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ship-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 12px;
+  color: inherit;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-bottom: 2px solid var(--line-strong);
+  cursor: pointer;
+}
+.ship-tab.on {
+  border-bottom-color: var(--accent);
+  background: var(--bg-2);
+}
+.ship-tab.other.on {
+  border-bottom-color: var(--gm);
+}
+.shipboard {
+  position: relative;
+}
+.shipboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.shipboard .holo-svg {
+  max-height: 38vh;
+}
+.alarm {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--danger-ghost);
+  border: 1px solid var(--danger);
+  animation: alarm-pulse 1s ease-in-out 4;
+}
+.alarm > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--danger);
+}
+@keyframes alarm-pulse {
+  50% {
+    box-shadow: 0 0 0 3px rgba(255, 92, 108, 0.35);
+  }
+}
+.alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow: auto;
+}
+.alert-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid var(--danger);
+  font-size: 13px;
+}
+.alert-list li > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--danger);
+}
+.alert-list li.fault {
+  border-left-color: var(--warn);
+}
+.alert-list li.fault > svg {
+  color: var(--warn);
+}
+.alert-list li.repair {
+  border-left-color: var(--ok);
+}
+.alert-list li.repair > svg {
+  color: var(--ok);
+}
+.alert-list li.is-cleared {
+  border-left-color: var(--line-strong);
+  color: var(--text-dim);
+}
+.alert-list li.is-cleared > svg {
+  color: var(--text-faint);
+}
+.systems td {
+  vertical-align: middle;
+}
+.systems .sys-name {
+  width: 150px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.systems .sys-pips {
+  width: 96px;
+  white-space: nowrap;
+}
+.systems .sys-pips i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+}
+.systems .sys-pips i.on {
+  background: var(--text);
+  border-color: var(--text);
+}
+.systems tr.is-damaged .sys-name {
+  color: var(--text);
+}
+.systems tr.is-damaged .sys-pips i.on {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.systems .sys-text {
+  font-size: 12.5px;
+}
+.systems .sys-tools {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+.station-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+.station-row .select {
+  width: auto;
+  max-width: 190px;
+  padding: 3px 6px;
+}
+.battle-list {
+  margin-top: 18px;
+}
+
+/* Battle */
+.step-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.step-track li {
+  padding: 3px 12px;
+  color: var(--text-faint);
+  border: 1px solid var(--line-strong);
+  border-left-width: 0;
+  background: var(--bg-1);
+}
+.step-track li:first-child {
+  border-left-width: 1px;
+}
+.step-track li.round {
+  color: var(--text);
+  font-weight: 600;
+}
+.step-track li.done {
+  color: var(--text-dim);
+}
+.step-track li.on {
+  color: var(--bg-0);
+  font-weight: 600;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.battle-stage {
+  overflow: auto;
+}
+.shipcard {
+  flex-basis: 214px;
+  cursor: default;
+}
+.shipcard .ccard-face svg {
+  color: var(--text-dim);
+}
+.shipcard-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+}
+.shipcard-tools .select {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.range-track {
+  flex: none;
+  display: grid;
+  grid-template-columns: 120px repeat(7, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.range-own {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-weight: 600;
+  border-right: 1px solid var(--accent);
+  background: var(--accent-ghost);
+}
+.range-own span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.range-band {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 78px;
+  padding: 5px 7px;
+  border-right: 1px solid var(--line);
+}
+.range-band:last-child {
+  border-right: 0;
+}
+.range-band.dogfight {
+  background: rgba(255, 255, 255, 0.02);
+}
+.range-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.range-dist,
+.range-thrust {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.range-thrust {
+  margin-top: auto;
+}
+.range-ships {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.range-ship {
+  padding: 1px 6px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--danger);
+  border-radius: 3px;
+  background: var(--bg-3);
+}
+.range-ship.neutral {
+  border-style: dashed;
+  border-color: var(--text-dim);
+}
+.range-ship.party {
+  border-color: var(--accent);
+  border-radius: 99px;
+}
+.range-ship.is-turn {
+  box-shadow: 0 0 0 1px #fff;
+}
+.range-ship.is-hidden {
+  border-style: dashed;
+  border-color: var(--gm);
+}
+.ownship.is-hit {
+  animation: combat-shake 0.5s;
+  border-color: var(--danger);
+}
+.ownship-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 4px 12px 12px;
+}
+.ownship-body .holo.compact .holo-svg {
+  max-height: 170px;
+}
+.ownship-crew {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.crewbar .step {
+  flex-basis: 270px;
+}
+.crewbar .step-head {
+  cursor: default;
+}
+.crewbar .actionbar-go {
+  max-width: 230px;
+}
+.gauge-head .status svg {
+  flex: none;
+}
+
+@media (max-width: 1100px) {
+  .shipboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .range-track {
+    grid-template-columns: 90px repeat(7, minmax(0, 1fr));
+  }
+  .range-dist {
+    display: none;
+  }
+  .ownship-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alarm,
+  .ownship.is-hit {
+    animation: none;
+  }
+}

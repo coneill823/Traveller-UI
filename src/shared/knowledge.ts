@@ -8,6 +8,7 @@
 import {
   PARTY,
   type Audience,
+  type Battle,
   type Body,
   type Character,
   type Encounter,
@@ -98,7 +99,7 @@ export const FACETS: Partial<Record<EntityType, FacetSpec[]>> = {
   ship: [
     { key: 'exists', label: 'Seen', hint: 'Players know this ship exists.', fields: ['className', 'tons', 'party', 'location'] },
     { key: 'name', label: 'Name', hint: 'The ship is identified by name.', fields: ['name'] },
-    { key: 'details', label: 'Details', hint: 'Performance, cargo and everything aboard.', fields: ['jump', 'thrust', 'cargo', 'fuelCapacity', 'fuel', 'staterooms', 'lowBerths', 'summary', 'design', 'state', 'crew'] },
+    { key: 'details', label: 'Details', hint: 'Performance, cargo and everything aboard.', fields: ['jump', 'thrust', 'cargo', 'fuelCapacity', 'fuel', 'staterooms', 'lowBerths', 'summary', 'spec', 'designId', 'hull', 'hullMax', 'armour', 'maintenance', 'construction', 'crits', 'repaired', 'alerts', 'duties'] },
   ],
   stash: [{ key: 'exists', label: 'Known', hint: 'Players can see this store and what is in it.', fields: ['name', 'location', 'summary'] }],
   market: [
@@ -275,6 +276,39 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
         }));
       return { ...rest, combatants, log, turn: e.turn && ids.has(e.turn) ? e.turn : undefined, notes: visibleNotes(e.notes, v) } as Entity;
     }
+    case 'battle': {
+      // Players see their own side in full; of other ships only a name, a range and a rough condition.
+      const b = entity as Battle;
+      if (b.status === 'setup' && !b.open) return null;
+      const { gm: _gm, known: _known, ...rest } = b;
+      const shown = b.ships.filter((x) => !x.hidden);
+      const ids = new Set(shown.map((x) => x.id));
+      const own = new Set<Id>();
+      const ships = shown.map((x) => {
+        const ship = (x.shipId ? get(x.shipId) : undefined) as Ship | undefined;
+        const ours = !!ship && ship.type === 'ship' && (ship.party === true || knows(ship, 'details', v));
+        if (ours) {
+          own.add(x.id);
+          return x;
+        }
+        const state = ship?.type === 'ship' ? ship : x.quick;
+        const { quick: _quick, locks: _locks, closing: _closing, nextInitiativeDm: _next, ...pub } = x;
+        return { ...pub, seen: { name: x.name, ...(ship?.type === 'ship' && knows(ship, 'exists', v) ? { className: ship.className, tons: ship.tons } : x.quick?.tons ? { tons: x.quick.tons } : {}), condition: hullCondition(state) } };
+      });
+      const plans: Battle['plans'] = {};
+      for (const id of own) if (b.plans[id]) plans[id] = b.plans[id];
+      const log = b.log
+        .filter((r) => ids.has(r.shipId))
+        .map((r) => ({
+          ...r,
+          actions: r.actions.map((a) => (a.targetId && !ids.has(a.targetId) ? { ...a, targetId: undefined } : a)),
+          results: r.results
+            .filter((x) => !x.targetId || ids.has(x.targetId))
+            .map((x) => (x.targetId && !own.has(x.targetId) ? { ...x, taken: undefined, absorbed: undefined } : x)),
+        }));
+      const salvos = b.salvos.filter((x) => !x.hidden && ids.has(x.fromId) && ids.has(x.toId));
+      return { ...rest, ships, plans, log, salvos, turn: b.turn && ids.has(b.turn) ? b.turn : undefined, notes: visibleNotes(b.notes, v) } as Entity;
+    }
     case 'design': {
       // Drafts stay with their author until shared; anything put to the party is open to all.
       const d = entity as ShipDesign;
@@ -311,6 +345,13 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
     default:
       return facetView(entity, v) as Entity | null;
   }
+}
+
+function hullCondition(state: { hull?: number; hullMax?: number } | undefined): 'intact' | 'damaged' | 'crippled' | 'wrecked' {
+  if (!state || state.hull === undefined || !state.hullMax) return 'intact';
+  if (state.hull <= 0) return 'wrecked';
+  const f = state.hull / state.hullMax;
+  return f >= 1 ? 'intact' : f >= 0.5 ? 'damaged' : 'crippled';
 }
 
 /** Coarse health from current scores: END, STR and DEX against their full values. */

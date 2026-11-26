@@ -191,6 +191,10 @@ export class Hub implements Emitter {
       if (entity.type === 'character') {
         for (const e of this.state.all('encounter')) if (e.status !== 'ended' && e.combatants.some((c) => c.characterId === entity.id)) ids.push(e.id);
       }
+      // A battle shows players a rough condition for ships that are not theirs.
+      if (entity.type === 'ship') {
+        for (const b of this.state.all('battle')) if (b.status !== 'ended' && b.ships.some((x) => x.shipId === entity.id)) ids.push(b.id);
+      }
       return ids;
     }
     return [];

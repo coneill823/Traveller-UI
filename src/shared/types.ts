@@ -327,6 +327,29 @@ export interface Ship extends EntityBase {
   maintenance?: number;
   /** Set while the ship is still in the yard. */
   construction?: { readyDay: number; readyYear: number; systemId?: Id };
+  /** Critical hit severity by location (sensors, powerPlant, mDrive...). */
+  crits?: Record<string, number>;
+  /** Locations whose critical hit effects have been patched up for the time being. */
+  repaired?: string[];
+  /** What has gone wrong lately, newest last: hits, critical hits, faults and repairs. */
+  alerts?: ShipAlert[];
+  /** Who is at which station: character id -> duty, and the turret for gunners. */
+  duties?: Record<Id, { duty: string; mount?: string }>;
+}
+
+/** Something that happened to a ship and is shown on its status board. */
+export interface ShipAlert {
+  id: Id;
+  kind: 'hit' | 'critical' | 'fault' | 'repair';
+  /** Critical hit location id, and the part of the design it shows on. */
+  location?: string;
+  partId?: string;
+  severity?: number;
+  title: string;
+  text?: string;
+  at: number;
+  /** Dealt with or acknowledged: no longer highlighted. */
+  cleared?: boolean;
 }
 
 // ───────────────────────────── ship design ─────────────────────────────
@@ -512,6 +535,130 @@ export interface Encounter extends EntityBase {
   summary?: string;
 }
 
+// ───────────────────────────── space battles ─────────────────────────────
+
+export type BattleStepId = 'manoeuvre' | 'attack' | 'actions';
+export type ShipConditionId = 'intact' | 'damaged' | 'crippled' | 'wrecked';
+
+export interface BattleShip {
+  id: Id;
+  /** The ship's own record, when it has one. */
+  shipId?: Id;
+  name: string;
+  side: CombatSide;
+  initiative?: number;
+  /** One-round changes to initiative from the captain: this round's, and next round's. */
+  initiativeDm?: number;
+  nextInitiativeDm?: number;
+  /** Range band from the party's flagship. */
+  range?: string;
+  /** Thrust banked toward the next change of range: positive closes, negative opens. */
+  closing?: number;
+  hidden?: boolean;
+  out?: boolean;
+  /** Has acted in the current step. */
+  acted?: boolean;
+  /** Ships (battle ids) this one holds a sensor lock on. */
+  locks?: Id[];
+  /** Bare figures for a ship with no record of its own. */
+  quick?: { tons?: number; thrust?: number; pilot?: number; hull?: number; hullMax?: number; armour?: number; crits?: Record<string, number> };
+  /** Filled in for players: what they can tell about a ship that is not theirs. */
+  seen?: { name: string; className?: string; tons?: number; condition: ShipConditionId };
+}
+
+/** One thing a member of the crew does in a step of the round. */
+export interface CrewAction {
+  id: Id;
+  step: BattleStepId | 'reaction';
+  /** Action and duty ids from the rules pack. */
+  action: string;
+  duty: string;
+  label: string;
+  characterId?: Id;
+  /** The player who queued it. */
+  by: Id;
+  done?: boolean;
+  /** Battle ship acted upon. */
+  targetId?: Id;
+  /** Part id of the turret used, the weapon fired and how many of them together. */
+  mount?: string;
+  weapon?: string;
+  weapons?: number;
+  roll?: { total: number; target?: number; rollId?: Id };
+  damage?: number;
+  addEffect?: boolean;
+  /** Thrust spent, and whether it closes (true) or opens the range. */
+  thrust?: number;
+  closing?: boolean;
+  /** Critical hit location: a called shot, or the system being repaired. */
+  location?: string;
+  salvoId?: Id;
+  /** Missiles launched. */
+  missiles?: number;
+  note?: string;
+}
+
+export interface BattleResult {
+  actionId: Id;
+  targetId?: Id;
+  hit?: boolean;
+  effect?: number;
+  dealt?: number;
+  taken?: number;
+  absorbed?: number;
+  criticals?: { location: string; name: string; severity: number; text: string }[];
+  wrecked?: boolean;
+  range?: { from: string; to: string };
+  salvo?: { id: Id; missiles: number; impactRound: number };
+  missilesLeft?: number;
+  repaired?: string;
+  initiativeDm?: number;
+  lock?: boolean;
+}
+
+export interface BattleRecord {
+  id: Id;
+  round: number;
+  step: BattleStepId;
+  /** Battle ship that acted. */
+  shipId: Id;
+  by: Id;
+  actions: CrewAction[];
+  results: BattleResult[];
+  at: number;
+}
+
+export interface Salvo {
+  id: Id;
+  fromId: Id;
+  toId: Id;
+  missiles: number;
+  launched: number;
+  impactRound: number;
+  /** Not yet detected by the party. */
+  hidden?: boolean;
+  done?: boolean;
+}
+
+/** A fight between ships, run in rounds of three steps with each ship acting in initiative order. */
+export interface Battle extends EntityBase {
+  type: 'battle';
+  name: string;
+  status: 'setup' | 'active' | 'ended';
+  open?: boolean;
+  round: number;
+  step: BattleStepId;
+  /** The battle ship whose turn it is in this step. */
+  turn?: Id;
+  /** The party's ship that ranges are measured from. */
+  flagship?: Id;
+  ships: BattleShip[];
+  /** Actions each ship's crew have queued, by battle ship id. */
+  plans: Record<Id, CrewAction[]>;
+  salvos: Salvo[];
+  log: BattleRecord[];
+}
+
 // ───────────────────────────── inventory & cargo ─────────────────────────────
 
 /** A named place to keep things that is not a person or a ship: a vault, a cache, a storage unit. */
@@ -665,6 +812,7 @@ export type Entity =
   | Ship
   | ShipDesign
   | Encounter
+  | Battle
   | Stash
   | Item
   | Market
@@ -690,6 +838,7 @@ export const ID_PREFIX: Record<EntityType, string> = {
   ship: 'shp',
   design: 'dsn',
   encounter: 'enc',
+  battle: 'btl',
   stash: 'sth',
   item: 'itm',
   market: 'mkt',

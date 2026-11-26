@@ -16,6 +16,10 @@ interface Props {
   editable: boolean;
   /** Part ids with a problem. */
   flagged?: Set<string>;
+  /** Part ids (or "cargo") that have just been hit or have a fault: these pulse until acknowledged. */
+  alerts?: Set<string>;
+  /** The whole hull has taken damage that is not tied to one part. */
+  struck?: boolean;
   onMove?: (id: string, beforeId: string | undefined) => void;
   onDropEntry?: (entry: { kind: PartKind; key?: string }, beforeId: string | undefined) => void;
   compact?: boolean;
@@ -44,7 +48,7 @@ function useGrid(spec: ShipSpec): HullGrid | undefined {
   return sync ?? (loaded?.key === key ? loaded.grid : undefined);
 }
 
-export function HullView({ spec, report, selected, onSelect, editable, flagged, onMove, onDropEntry, compact }: Props) {
+export function HullView({ spec, report, selected, onSelect, editable, flagged, alerts, struck, onMove, onDropEntry, compact }: Props) {
   const grid = useGrid(spec);
   const svgRef = useRef<SVGSVGElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -119,7 +123,7 @@ export function HullView({ spec, report, selected, onSelect, editable, flagged, 
   const targetLine = target ? describe(target.id).name : '';
 
   return (
-    <div className={cx('holo', compact && 'compact')} ref={boxRef} data-drop="hull">
+    <div className={cx('holo', compact && 'compact', struck && 'is-struck')} ref={boxRef} data-drop="hull">
       <svg
         ref={svgRef}
         className="holo-svg"
@@ -181,13 +185,13 @@ export function HullView({ spec, report, selected, onSelect, editable, flagged, 
         })}
         <path d={seams} className="holo-seam" strokeWidth={grid.size * 0.36} />
         {layout.blocks.map((block) => {
-          const ring = selected === block.id || target?.id === block.id || flagged?.has(block.id);
+          const ring = selected === block.id || target?.id === block.id || flagged?.has(block.id) || alerts?.has(block.id);
           if (!ring) return null;
           return (
             <path
               key={`ring-${block.id}`}
               d={edgesPath(grid, block.cells, (n) => n === undefined || layout.owner.get(n) !== block.id)}
-              className={cx('holo-ring', target?.id === block.id ? 'is-target' : selected === block.id ? 'is-selected' : 'is-flagged')}
+              className={cx('holo-ring', target?.id === block.id ? 'is-target' : alerts?.has(block.id) ? 'is-alert' : selected === block.id ? 'is-selected' : 'is-flagged')}
             />
           );
         })}
@@ -202,7 +206,7 @@ export function HullView({ spec, report, selected, onSelect, editable, flagged, 
           if (!text) return null;
           return (
             <text key={`label-${block.id}`} x={spot.x} y={spot.y} fontSize={fontSize} className={cx('holo-label', block.id === CARGO && 'on-surface')}>
-              {flagged?.has(block.id) ? '⚠ ' : ''}
+              {flagged?.has(block.id) || alerts?.has(block.id) ? '⚠ ' : ''}
               {text}
             </text>
           );

@@ -419,6 +419,26 @@ body[data-dragging='part'] .yard-bin {
 .holo-ring.is-flagged {
   stroke: var(--danger);
 }
+.holo-ring.is-alert {
+  stroke: var(--danger);
+  stroke-width: 3;
+  animation: holo-alert 1s ease-in-out infinite;
+}
+.holo.is-struck .holo-edge {
+  stroke: var(--danger);
+  animation: holo-alert 1s ease-in-out infinite;
+}
+@keyframes holo-alert {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .holo-ring.is-alert,
+  .holo.is-struck .holo-edge {
+    animation: none;
+  }
+}
 .holo-label {
   fill: #fff;
   font-family: var(--font-body);
