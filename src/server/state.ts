@@ -16,6 +16,8 @@ const INDEXED: Partial<Record<EntityType, string[]>> = {
   body: ['systemId', 'parentId'],
   route: ['a', 'b'],
   wikiPage: ['entityId', 'path'],
+  item: ['holderId'],
+  market: ['systemId'],
 };
 
 export interface Change {

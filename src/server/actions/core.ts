@@ -52,6 +52,8 @@ const GM_LOCKED: Record<string, string[]> = {
   asset: ['url', 'mime', 'size', 'uploadedBy'],
   objective: ['createdBy'],
   character: ['kind'],
+  item: ['holderId'],
+  market: ['systemId'],
 };
 
 /** Fields a player may edit on entities they own. Returns null when the entity is not theirs to edit. */
@@ -106,6 +108,7 @@ export function cascadeDelete(tx: Tx, id: Id): void {
     case 'system':
       for (const body of tx.where('body', 'systemId', id)) tx.delete(body.id);
       for (const route of [...tx.where('route', 'a', id), ...tx.where('route', 'b', id)]) tx.delete(route.id);
+      for (const market of tx.where('market', 'systemId', id)) tx.delete(market.id);
       for (const objective of tx.all('objective')) {
         if (objective.targets.some((t) => t.systemId === id)) {
           tx.update<Objective>(objective.id, (o) => {
@@ -120,6 +123,11 @@ export function cascadeDelete(tx: Tx, id: Id): void {
       break;
     case 'body':
       for (const child of tx.where('body', 'parentId', id)) cascadeDelete(tx, child.id);
+      break;
+    case 'character':
+    case 'ship':
+    case 'stash':
+      for (const item of tx.where('item', 'holderId', id)) tx.delete(item.id);
       break;
     case 'campaign':
       throw new ActionError('The campaign itself cannot be deleted');
@@ -229,6 +237,9 @@ function revealAncestors(tx: Tx, entity: Entity, audience: Audience): void {
     revealOne(tx, body.systemId, ['exists'], audience, true);
   } else if (entity.type === 'system') {
     revealOne(tx, (entity as StarSystem).sectorId, ['exists'], audience, true);
+  } else if (entity.type === 'market') {
+    // Knowing about a market means knowing where it is.
+    revealOne(tx, (entity as { systemId: Id }).systemId, ['exists', 'name'], audience, true);
   }
 }
 

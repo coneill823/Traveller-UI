@@ -348,3 +348,124 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ───────── inventory ───────── */
+.inventory {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+.inventory-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line);
+}
+.inventory-main {
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.holder {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+.holder strong {
+  display: block;
+  color: var(--text);
+  font-weight: 500;
+}
+.holder .tiny {
+  display: block;
+}
+.holder:hover {
+  background: var(--bg-3);
+}
+.holder.on {
+  border-left-color: var(--accent);
+  background: var(--accent-ghost);
+}
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meter-bar {
+  width: 120px;
+  height: 7px;
+  background: var(--bg-0);
+  border: 1px solid var(--line-strong);
+}
+.meter-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.meter-bar i.high {
+  background: var(--warn);
+}
+.meter-bar i.over {
+  background: var(--danger);
+}
+tr.illegal td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+@media (max-width: 800px) {
+  .inventory {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 36%) minmax(0, 1fr);
+  }
+  .inventory-side {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* ───────── trade ───────── */
+.trade-ship {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-2);
+  color: var(--text-dim);
+}
+.market.black {
+  border-color: rgba(255, 92, 108, 0.4);
+}
+.market.black > .panel-head::before {
+  background: var(--danger);
+  box-shadow: none;
+}
+.demand {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ok);
+  background: var(--bg-1);
+  color: var(--ok);
+}
+.demand strong {
+  color: var(--text);
+}
+.demand.hidden-from-players {
+  border-left-color: var(--gm);
+  color: var(--gm);
+  background: linear-gradient(90deg, var(--gm-ghost), transparent 40%), var(--bg-1);
+}

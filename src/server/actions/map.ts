@@ -302,6 +302,10 @@ action('party.moveTo', (ctx, p) => {
   ctx.tx.update<Campaign>(CAMPAIGN_ID, (c) => {
     c.location = { systemId: system.id, bodyId };
   });
+  // The party's ships travel with them.
+  for (const ship of ctx.tx.all('ship')) {
+    if (ship.party) ctx.tx.update(ship.id, (s) => void ((s as typeof ship).location = { systemId: system.id, bodyId, status: 'docked' }));
+  }
   // Arriving somewhere means the party at least knows the system is there.
   if (p.reveal !== false) applyPreset(ctx.tx, system.id, 'charted', 'party');
 });

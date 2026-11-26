@@ -12,6 +12,9 @@ import {
   type Character,
   type Entity,
   type EntityType,
+  type Item,
+  type Market,
+  type Ship,
   type Id,
   type Known,
   type Note,
@@ -88,6 +91,17 @@ export const FACETS: Partial<Record<EntityType, FacetSpec[]>> = {
       hint: 'Characteristics, skills, weapons, armour and background.',
       fields: ['age', 'homeworld', 'careers', 'chars', 'skills', 'weapons', 'armour', 'traits', 'bio', 'conditions', 'movement'],
     },
+  ],
+  // Ships the party does not crew. Party ships are always visible to every player.
+  ship: [
+    { key: 'exists', label: 'Seen', hint: 'Players know this ship exists.', fields: ['className', 'tons', 'party', 'location'] },
+    { key: 'name', label: 'Name', hint: 'The ship is identified by name.', fields: ['name'] },
+    { key: 'details', label: 'Details', hint: 'Performance, cargo and everything aboard.', fields: ['jump', 'thrust', 'cargo', 'fuelCapacity', 'fuel', 'staterooms', 'lowBerths', 'summary', 'design', 'state', 'crew'] },
+  ],
+  stash: [{ key: 'exists', label: 'Known', hint: 'Players can see this store and what is in it.', fields: ['name', 'location', 'summary'] }],
+  market: [
+    { key: 'exists', label: 'Known', hint: 'Players know there is a market here.', fields: ['systemId', 'bodyId', 'name', 'venue', 'blackMarket'] },
+    { key: 'catalogue', label: 'Catalogue', hint: 'What is for sale, and the prices quoted.', fields: ['lots', 'broker', 'stocked'] },
   ],
   asset: [{ key: 'exists', label: 'Shared', hint: 'The file can be opened by players.', fields: ['name', 'mime', 'size', 'url', 'uploadedBy'] }],
 };
@@ -218,6 +232,31 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
       const { gm: _gm, known: _known, ...rest } = r;
       return rest as Entity;
     }
+    case 'ship': {
+      const ship = entity as Ship;
+      if (!ship.party) return facetView(entity, v) as Entity | null;
+      const { gm: _gm, known: _known, ...rest } = ship;
+      return { ...rest, notes: visibleNotes(ship.notes, v) } as Entity;
+    }
+    case 'item': {
+      // An item is visible when the viewer can see inside whatever holds it.
+      const item = entity as Item;
+      const holder = get(item.holderId);
+      if (!holder || !contentsVisible(holder, v)) return null;
+      const { gm: _gm, known: _known, ...rest } = item;
+      return rest as Entity;
+    }
+    case 'market': {
+      const market = entity as Market;
+      const system = get(market.systemId);
+      if (!system || !knows(system, 'exists', v)) return null;
+      const view = facetView(entity, v) as Record<string, unknown> | null;
+      if (!view) return null;
+      // Demands are intelligence, revealed one at a time like notes.
+      view.demands = market.demands.filter((d) => audienceMatches(d.known, v)).map((d) => ({ ...d, known: [] }));
+      if (view.lots === undefined) view.lots = [];
+      return view as unknown as Entity;
+    }
     case 'asset': {
       if ((entity as { uploadedBy?: Id }).uploadedBy === v.playerId) {
         const { gm: _gm, known: _known, ...rest } = entity;
@@ -228,6 +267,15 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
     default:
       return facetView(entity, v) as Entity | null;
   }
+}
+
+/** Whether a viewer can see the things held by a character, ship or stash. */
+export function contentsVisible(holder: Entity, v: Viewer): boolean {
+  if (v.role === 'gm') return true;
+  if (holder.type === 'character') return (holder as Character).kind === 'pc' || knows(holder, 'details', v);
+  if (holder.type === 'ship') return (holder as Ship).party === true || knows(holder, 'details', v);
+  if (holder.type === 'stash') return knows(holder, 'exists', v);
+  return false;
 }
 
 /** Adds or removes an audience from a facet list, returning a new Known map. */

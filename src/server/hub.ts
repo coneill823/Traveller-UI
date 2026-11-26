@@ -181,7 +181,12 @@ export class Hub implements Emitter {
         ...this.state.where('body', 'systemId', entity.id).map((b) => b.id),
         ...this.state.where('route', 'a', entity.id).map((r) => r.id),
         ...this.state.where('route', 'b', entity.id).map((r) => r.id),
+        ...this.state.where('market', 'systemId', entity.id).map((m) => m.id),
       ];
+    }
+    // What a holder contains is visible only while the holder's contents are.
+    if (entity.type === 'character' || entity.type === 'ship' || entity.type === 'stash') {
+      return this.state.where('item', 'holderId', entity.id).map((i) => i.id);
     }
     return [];
   }

@@ -203,6 +203,45 @@ export interface CombatRules {
   damage: { minimumOnEffect: number; destructiveMultiplier: number; meleeAddsStrDm: boolean };
 }
 
+export interface TradeGood {
+  /** D66 code on the trade goods table. */
+  code: number;
+  name: string;
+  /** Trade codes of worlds where the good is found; "*" means everywhere. */
+  availability: string[];
+  /** Tons on offer: dice x multiplier. */
+  tons: { dice: number; mult: number };
+  basePrice: number;
+  /** Modifiers by trade code, or "Amber"/"Red" for travel zones. */
+  purchaseDm: Record<string, number>;
+  saleDm: Record<string, number>;
+  examples?: string;
+  illegal?: boolean;
+  /** Handled through play, not the trade rules. */
+  exotic?: boolean;
+}
+
+export interface TrafficWorldDm {
+  pop?: RangeDm[];
+  starport?: Record<string, number>;
+  tl?: RangeDm[];
+  zone?: Record<string, number>;
+}
+
+export interface TradeRules {
+  goods: TradeGood[];
+  /** Price as a percentage of base price for each modified roll (clamped at both ends). */
+  modifiedPrice: { result: number; purchase: number; sale: number }[];
+  priceRoll: { dice: number; opposingBroker: number };
+  quantity: { lowPopMax: number; lowPopDm: number; highPopMin: number; highPopDm: number };
+  supplier: { starportDm: Record<string, number>; repeatDm: number; checks: { name: string; skill: string; chars: string[]; target: number; time: string; blackMarket?: boolean; minTl?: number }[] };
+  localBroker: { skillDice: number; skillDivisor: number; negotiationDm: number; fee: number; illegalFee: number };
+  passage: { parsecs: number; high: number; middle: number; basic: number; low: number; freight: number }[];
+  passengerTraffic: { table: { max: number; dice: number }[]; classDm: Record<string, number>; worldDm: TrafficWorldDm; perExtraParsec: number; checkSkills: string[] };
+  freightTraffic: { table: { max: number; dice: number }[]; lots: Record<string, { dm: number; dice: number; mult: number }>; worldDm: TrafficWorldDm; perExtraParsec: number; checkSkills: string[]; latePenalty: string };
+  mail: { target: number; tonsPerContainer: number; payPerContainer: number; containers: { dice: number }; armedDm: number; lowTlMax: number; lowTlDm: number; freightDmBands: { max: number; dm: number }[] };
+}
+
 export interface RulePack {
   packs: PackMeta[];
   world?: WorldRules;
@@ -210,6 +249,7 @@ export interface RulePack {
   characters?: CharacterRules;
   gear?: GearRules;
   combat?: CombatRules;
+  trade?: TradeRules;
   // Later slices add: skills, gear, trade, ships, combat, spaceCombat.
   [section: string]: unknown;
 }

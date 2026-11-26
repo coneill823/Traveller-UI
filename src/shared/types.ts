@@ -290,6 +290,126 @@ export interface Character extends EntityBase {
   movement?: number;
 }
 
+// ───────────────────────────── ships (basics) ─────────────────────────────
+
+/** A starship or small craft. The ship builder and ship operations add detail to this record. */
+export interface Ship extends EntityBase {
+  type: 'ship';
+  name?: string;
+  /** Class or design name, e.g. "Far Trader". */
+  className?: string;
+  /** True for ships the party crews; every player can see and use these. */
+  party?: boolean;
+  tons?: number;
+  jump?: number;
+  thrust?: number;
+  /** Tons of cargo space. */
+  cargo?: number;
+  /** Tons of fuel tankage and fuel aboard. */
+  fuelCapacity?: number;
+  fuel?: number;
+  /** The ship's account, in credits. */
+  funds?: number;
+  location?: { systemId?: Id; bodyId?: Id; status?: 'docked' | 'orbit' | 'in-flight' | 'jump' };
+  /** Staterooms and low berths available for passengers. */
+  staterooms?: number;
+  lowBerths?: number;
+  summary?: string;
+}
+
+// ───────────────────────────── inventory & cargo ─────────────────────────────
+
+/** A named place to keep things that is not a person or a ship: a vault, a cache, a storage unit. */
+export interface Stash extends EntityBase {
+  type: 'stash';
+  name?: string;
+  /** Where it is, if anywhere in particular. */
+  location?: { systemId?: Id; bodyId?: Id };
+  summary?: string;
+}
+
+export type ItemCategory = 'weapon' | 'armour' | 'gear' | 'consumable' | 'cargo' | 'other';
+
+/** Something owned: personal equipment, or a lot of cargo in a ship's hold. */
+export interface Item extends EntityBase {
+  type: 'item';
+  /** The character, ship or stash holding it. */
+  holderId: Id;
+  name: string;
+  category: ItemCategory;
+  qty: number;
+  /** Mass of one unit, in kilograms (personal gear). */
+  kg?: number;
+  /** Value of one unit, in credits. */
+  value?: number;
+  tl?: number;
+  note?: string;
+  tags?: string[];
+  /** Carried or worn (counts towards what the character is hauling around). */
+  carried?: boolean;
+  /** Rules-pack entry this came from. */
+  defId?: string;
+  // ── cargo lots ──
+  /** Size of a cargo lot, in tons (cargo is tracked by the ton, with qty 1). */
+  tons?: number;
+  /** Trade good code, for speculative cargo. */
+  good?: number;
+  /** Price paid per ton. */
+  paid?: number;
+  /** Where and when it was bought. */
+  origin?: { systemId?: Id; day?: number; year?: number };
+  /** Freight, mail and passengers carried for a fee paid on delivery. */
+  freight?: { destinationId?: Id; pay: number; kind: 'freight' | 'mail' | 'passengers'; due?: { day: number; year: number } };
+  illegal?: boolean;
+  /** A price a buyer has quoted for this lot at a market, valid until accepted or refused. */
+  saleOffer?: { marketId: Id; pct: number; price: number; fee?: number };
+}
+
+// ─────────────────────────────────── trade ───────────────────────────────────
+
+export interface MarketLot {
+  id: Id;
+  /** Trade good code. */
+  good: number;
+  name: string;
+  tons: number;
+  basePrice: number;
+  illegal?: boolean;
+  /** A price the supplier has quoted, valid until accepted or refused. `fee` is a local broker's cut (0–1). */
+  offer?: { pct: number; price: number; by?: Id; fee?: number };
+  /** Set when the party walked away: no more dealing on this lot for a month. */
+  refused?: { day: number; year: number };
+}
+
+/** Something a market is known to want: a story hook as much as a price. */
+export interface MarketDemand {
+  id: Id;
+  /** What is wanted, in plain words. */
+  what: string;
+  /** Trade good it corresponds to, if any. */
+  good?: number;
+  /** Bonus to the sale roll for delivering it. */
+  dm?: number;
+  note?: string;
+  known: Audience[];
+}
+
+/** A place to buy and sell cargo: a downport exchange, a highport, a belt station. */
+export interface Market extends EntityBase {
+  type: 'market';
+  systemId: Id;
+  bodyId?: Id;
+  name?: string;
+  venue: 'surface' | 'orbit' | 'station';
+  blackMarket?: boolean;
+  /** Broker skill of the people the party deals with. */
+  broker: number;
+  lots: MarketLot[];
+  demands: MarketDemand[];
+  /** In-game date the stock was last generated. */
+  stocked?: GameDate;
+}
+
 // ─────────────────────────────────── dice ───────────────────────────────────
 
 export interface Roll extends EntityBase {
@@ -347,6 +467,10 @@ export type Entity =
   | WikiPage
   | Roll
   | Character
+  | Ship
+  | Stash
+  | Item
+  | Market
   | Asset;
 
 export type EntityType = Entity['type'];
@@ -366,5 +490,9 @@ export const ID_PREFIX: Record<EntityType, string> = {
   wikiPage: 'wik',
   roll: 'rol',
   character: 'chr',
+  ship: 'shp',
+  stash: 'sth',
+  item: 'itm',
+  market: 'mkt',
   asset: 'ast',
 };
