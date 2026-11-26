@@ -15,6 +15,7 @@ import {
   type Item,
   type Market,
   type Ship,
+  type ShipDesign,
   type Id,
   type Known,
   type Note,
@@ -237,6 +238,13 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
       if (!ship.party) return facetView(entity, v) as Entity | null;
       const { gm: _gm, known: _known, ...rest } = ship;
       return { ...rest, notes: visibleNotes(ship.notes, v) } as Entity;
+    }
+    case 'design': {
+      // Drafts stay with their author until shared; anything put to the party is open to all.
+      const d = entity as ShipDesign;
+      if (!d.shared && d.status === 'draft' && d.ownerId !== v.playerId) return null;
+      const { gm: _gm, known: _known, ...rest } = d;
+      return { ...rest, notes: visibleNotes(d.notes, v) } as Entity;
     }
     case 'item': {
       // An item is visible when the viewer can see inside whatever holds it.

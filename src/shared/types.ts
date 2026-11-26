@@ -315,6 +315,87 @@ export interface Ship extends EntityBase {
   staterooms?: number;
   lowBerths?: number;
   summary?: string;
+  /** The as-built design: hull, parts and outline. Set when the ship comes out of the shipyard. */
+  spec?: ShipSpec;
+  /** The design record this ship was built from. */
+  designId?: Id;
+  /** Current and full Hull points, and armour protection. */
+  hull?: number;
+  hullMax?: number;
+  armour?: number;
+  /** Monthly maintenance cost in credits. */
+  maintenance?: number;
+  /** Set while the ship is still in the yard. */
+  construction?: { readyDay: number; readyYear: number; systemId?: Id };
+}
+
+// ───────────────────────────── ship design ─────────────────────────────
+
+export type PartKind = 'armour' | 'mdrive' | 'jdrive' | 'plant' | 'fuel' | 'bridge' | 'computer' | 'sensors' | 'software' | 'mount' | 'fitting' | 'craft' | 'custom';
+
+/**
+ * One line of a ship design. `key` names a row of the rules pack's parts catalogue; how a part
+ * is sized depends on its kind (a drive has a `rating`, a power plant has `tons`, staterooms a `qty`).
+ * `craft` and `custom` lines carry their own name, tonnage and price.
+ */
+export interface DesignPart {
+  id: string;
+  kind: PartKind;
+  key?: string;
+  rating?: number;
+  qty?: number;
+  tons?: number;
+  options?: string[];
+  /** Weapon keys fitted to a mount. */
+  weapons?: string[];
+  name?: string;
+  /** Credits (craft and custom lines). */
+  cost?: number;
+  power?: number;
+}
+
+/**
+ * The silhouette a design is drawn on. Built-in outlines are referenced by key; a custom outline
+ * is either SVG path data or an uploaded image whose dark or opaque area is the hull.
+ */
+export type ShipOutline =
+  | { kind: 'builtin'; key: string }
+  | { kind: 'path'; d: string; viewBox: [number, number, number, number]; name?: string }
+  | { kind: 'image'; url: string; name?: string };
+
+export interface ShipSpec {
+  /** Tech level the design is drawn up for. */
+  tl: number;
+  hull: { tons: number; config: string; options?: string[] };
+  /** In order from bow to stern, which is how they are laid out on the outline. */
+  parts: DesignPart[];
+  outline?: ShipOutline;
+  /** Where along `parts` the cargo hold is drawn on the outline; by default just ahead of engineering. */
+  cargoAt?: number;
+  /** Key of the stock design this started from. */
+  stock?: string;
+}
+
+/** A ship design on the drawing board: drafted, shown to the party, signed off, then built. */
+export interface ShipDesign extends EntityBase {
+  type: 'design';
+  name: string;
+  className?: string;
+  status: 'draft' | 'proposed' | 'approved' | 'built';
+  /** Who drew it up. Drafts are private to their author and the GM until shared. */
+  ownerId: Id;
+  shared?: boolean;
+  spec: ShipSpec;
+  /** Players who have signed off on the proposal. */
+  approvals?: Id[];
+  /** The GM has signed it off on the party's behalf. */
+  gmSigned?: boolean;
+  /** The ship this design refits, if it is a refit. */
+  refitOf?: Id;
+  /** The ship built from it. */
+  shipId?: Id;
+  built?: { day: number; year: number; systemId?: Id; price: number };
+  summary?: string;
 }
 
 // ───────────────────────────── inventory & cargo ─────────────────────────────
@@ -468,6 +549,7 @@ export type Entity =
   | Roll
   | Character
   | Ship
+  | ShipDesign
   | Stash
   | Item
   | Market
@@ -491,6 +573,7 @@ export const ID_PREFIX: Record<EntityType, string> = {
   roll: 'rol',
   character: 'chr',
   ship: 'shp',
+  design: 'dsn',
   stash: 'sth',
   item: 'itm',
   market: 'mkt',

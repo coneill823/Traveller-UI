@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { mergePacks, type RulePack } from '../src/shared/rulepack';
 import WebSocket from 'ws';
 import type { ServerMessage } from '../src/shared/protocol';
 import type { Entity, EntityOf, EntityType } from '../src/shared/types';
@@ -10,6 +11,16 @@ import { startServer, type RunningServer } from '../src/server/index';
 export const RULEPACK_DIR = path.resolve(__dirname, '..', 'rulepacks');
 /** Rule tables are kept out of the public repository, so tests that need them skip when absent. */
 export const HAS_CORE_RULES = fs.existsSync(path.join(RULEPACK_DIR, 'mgt2-core', 'world.json'));
+
+/** The core rules pack read straight from disk, for tests of the rules engines. */
+export function loadCorePack(): RulePack {
+  let pack: RulePack = { packs: [] };
+  const dir = path.join(RULEPACK_DIR, 'mgt2-core');
+  for (const file of fs.readdirSync(dir)) {
+    if (file.endsWith('.json') && file !== 'pack.json') pack = mergePacks(pack, { packs: [], [path.basename(file, '.json')]: JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) } as RulePack);
+  }
+  return pack;
+}
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traveller-ui-test-'));

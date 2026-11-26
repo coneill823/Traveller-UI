@@ -8,6 +8,7 @@ import { ControlRoom } from '../modules/control/ControlRoom';
 import { DiceDock } from '../modules/dice/DiceDock';
 import { InventoryPage } from '../modules/inventory/InventoryPage';
 import { TradePage } from '../modules/trade/TradePage';
+import { ShipyardPage } from '../modules/shipyard/ShipyardPage';
 import { LibraryPage } from '../modules/library/LibraryPage';
 import { MapPage } from '../modules/map/MapPage';
 import { ObjectivesPage } from '../modules/objectives/ObjectivesPage';
@@ -29,6 +30,7 @@ const NAV: NavItem[] = [
   { id: 'characters', label: 'Crew', icon: 'users' },
   { id: 'inventory', label: 'Cargo', icon: 'package' },
   { id: 'trade', label: 'Trade', icon: 'coins' },
+  { id: 'shipyard', label: 'Yard', icon: 'wrench' },
   { id: 'objectives', label: 'Goals', icon: 'target' },
   { id: 'library', label: 'Library', icon: 'book' },
   { id: 'control', label: 'Control', icon: 'settings', gm: true },
@@ -200,6 +202,9 @@ export function Shell() {
       break;
     case 'trade':
       content = <TradePage />;
+      break;
+    case 'shipyard':
+      content = <ShipyardPage designId={route.parts[1]} />;
       break;
     case 'objectives':
       content = <ObjectivesPage />;

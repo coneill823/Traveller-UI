@@ -242,6 +242,269 @@ export interface TradeRules {
   mail: { target: number; tonsPerContainer: number; payPerContainer: number; containers: { dice: number }; armedDm: number; lowTlMax: number; lowTlDm: number; freightDmBands: { max: number; dm: number }[] };
 }
 
+// ───────────────────────────── spacecraft ─────────────────────────────
+
+export interface HullConfigDef {
+  id: string;
+  name: string;
+  streamlined: 'full' | 'partial' | 'none';
+  /** Multiplier on the basic hull cost and on Hull points. */
+  costMult: number;
+  hullMult: number;
+  /** Fuel scoops come with the hull. */
+  fuelScoop?: boolean;
+  noArmour?: boolean;
+  note?: string;
+}
+
+/** An option on a hull, bridge or computer. `costAdd` is a fraction added to the base cost. */
+export interface PartOptionDef {
+  id: string;
+  name: string;
+  tl?: number;
+  costAdd?: number;
+  costMult?: number;
+  hullMult?: number;
+  /** Bridges: use the size this many rows up or down the table. */
+  sizeStep?: number;
+  /** Computers: extra Processing for Jump Control software. */
+  jumpBonus?: number;
+  suffix?: string;
+  note?: string;
+}
+
+export interface ShipArmourDef {
+  id: string;
+  name: string;
+  tl: number;
+  /** Per point of protection: percentage of hull tonnage and of hull cost. */
+  tonsPct: number;
+  costPct: number;
+  /** Protection cannot exceed the design's TL, and/or a flat cap. */
+  maxByTl?: boolean;
+  max?: number;
+}
+
+export interface DriveRules {
+  /** Percentage of the hull per point of rating. */
+  tonsPct: number;
+  plusTons?: number;
+  minTons?: number;
+  costPerTon: number;
+  /** Power needed: this percentage of hull tonnage per point of rating. */
+  powerPct: number;
+  /** Fuel per jump: this percentage of hull tonnage per parsec. */
+  fuelPct?: number;
+  /** Smallest hull that can carry the drive. */
+  minHull?: number;
+  /** Minimum TL for rating 1, 2, 3... */
+  tl: number[];
+}
+
+export interface PlantDef {
+  id: string;
+  name: string;
+  tl: number;
+  powerPerTon: number;
+  costPerTon: number;
+}
+
+export interface BridgeTypeDef {
+  id: string;
+  name: string;
+  /** Largest hull it can be fitted to. */
+  maxHull?: number;
+  /** Fixed size and cost; a bridge without these is sized from the table. */
+  tons?: number;
+  cost?: number;
+  seats?: number;
+  note?: string;
+}
+
+export interface ShipComputerDef {
+  id: string;
+  name: string;
+  tl: number;
+  processing: number;
+  cost: number;
+}
+
+export interface ShipSensorDef {
+  id: string;
+  name: string;
+  tl: number;
+  dm: number;
+  power: number;
+  tons: number;
+  cost: number;
+  suite?: string;
+  /** Every ship has this grade without fitting anything. */
+  included?: boolean;
+}
+
+export interface ShipSoftwareDef {
+  id: string;
+  name: string;
+  /** Programs of one family supersede each other by level. */
+  family: string;
+  level: number;
+  tl: number;
+  bandwidth: number;
+  cost: number;
+  included?: boolean;
+  effect?: string;
+}
+
+export interface MountDef {
+  id: string;
+  name: string;
+  tl: number;
+  power: number;
+  tons: number;
+  cost: number;
+  /** Weapons it can carry (fewer on small craft where `smallCraftSlots` is set). */
+  slots: number;
+  smallCraftSlots?: number;
+  /** Can be fitted to a small craft's firmpoint. */
+  firmpoint?: boolean;
+  /** Only takes weapons whose `mount` matches. */
+  accepts?: string;
+  gunner?: boolean;
+  note?: string;
+}
+
+export interface ShipWeaponDef {
+  id: string;
+  name: string;
+  tl: number;
+  range: string;
+  power: number;
+  damage: string;
+  cost: number;
+  traits: string[];
+  /** Needs a mount that `accepts` this value. */
+  mount?: string;
+  ammo?: string;
+  defensive?: boolean;
+}
+
+/**
+ * A fitting from the catalogue. `size` says how it is dimensioned:
+ *  - unit: `qty` copies of fixed size;
+ *  - tons: the designer picks a tonnage;
+ *  - hull: a percentage of the hull;
+ *  - docking: sized from the tonnage of the craft carried (`rating`).
+ */
+export interface FittingDef {
+  id: string;
+  name: string;
+  group: string;
+  size: 'unit' | 'tons' | 'hull' | 'docking';
+  tl?: number;
+  unitTons?: number;
+  unitCost?: number;
+  unitPower?: number;
+  unitLabel?: string;
+  costPerTon?: number;
+  powerPerTon?: number;
+  minTons?: number;
+  maxHullPct?: number;
+  /** Tons-sized fittings that need equipment per so many tons (rounded up). */
+  stepTons?: number;
+  costPerStep?: number;
+  powerPerStep?: number;
+  perTonLabel?: string;
+  perTonValue?: number;
+  hullPct?: number;
+  costPerHullTon?: number;
+  powerPerHullTon?: number;
+  dockingPct?: number;
+  /** People it accommodates. */
+  berths?: number;
+  lowBerths?: number;
+  seats?: number;
+  passage?: 'high';
+  /** Only one may be fitted. */
+  single?: boolean;
+  /** Free when the hull configuration has this flag. */
+  builtInWhen?: string;
+  /** Useless on a hull that cannot enter atmosphere. */
+  needsAtmosphere?: boolean;
+  note?: string;
+}
+
+export interface StockDesign {
+  id: string;
+  name: string;
+  type?: string;
+  tl: number;
+  hull: { tons: number; config: string; options?: string[] };
+  outline?: string;
+  crew?: string;
+  /** Figures printed with the design, for reference. */
+  listed?: { cost: number; hull?: number; cargo?: number };
+  noDiscount?: boolean;
+  summary?: string;
+  note?: string;
+  parts: Omit<import('./types').DesignPart, 'id'>[];
+}
+
+export interface ShipyardDef {
+  smallCraft: boolean;
+  ships: boolean;
+  jump: boolean;
+  label: string;
+}
+
+export interface ShipRules {
+  hull: {
+    costPerTon: number;
+    tonsPerHullPoint: number;
+    minTons: number;
+    maxTons: number;
+    sizes: number[];
+    /** Hulls below this tonnage are small craft. */
+    smallCraftBelow: number;
+    buildDaysPerMCr: number;
+    selfSealingTl?: number;
+    configurations: HullConfigDef[];
+    options: PartOptionDef[];
+  };
+  armour: ShipArmourDef[];
+  mdrive: DriveRules;
+  jdrive: DriveRules;
+  plants: PlantDef[];
+  power: { basicPct: number };
+  fuel: { plantPct: number; plantMinTons: number; plantWeeks: number };
+  bridge: {
+    sizes: { maxHull: number; tons: number }[];
+    costPer100Tons: number;
+    types: BridgeTypeDef[];
+    options: PartOptionDef[];
+  };
+  computers: ShipComputerDef[];
+  computerOptions: PartOptionDef[];
+  sensors: ShipSensorDef[];
+  software: ShipSoftwareDef[];
+  mounts: MountDef[];
+  weapons: ShipWeaponDef[];
+  hardpoints: { perTons: number; firmpoints: { maxHull: number; points: number }[]; firmpointNote?: string };
+  fittings: FittingDef[];
+  crew: {
+    roles: { id: string; name: string; salary: number }[];
+    engineerPerTons: number;
+    medicPerPeople: number;
+    stewardPerHigh: number;
+    stewardPerMiddle: number;
+    skillBonusPct?: number;
+  };
+  costs: { standardDiscountPct: number; maintenanceDivisor: number };
+  /** Keyed by the starport table's `shipyard` value. */
+  shipyards: Record<string, ShipyardDef>;
+  usedShips?: { roll: [number, number]; age: string; discountPct: number; quirks: number }[];
+  designs: StockDesign[];
+}
+
 export interface RulePack {
   packs: PackMeta[];
   world?: WorldRules;
@@ -250,7 +513,7 @@ export interface RulePack {
   gear?: GearRules;
   combat?: CombatRules;
   trade?: TradeRules;
-  // Later slices add: skills, gear, trade, ships, combat, spaceCombat.
+  ships?: ShipRules;
   [section: string]: unknown;
 }
 

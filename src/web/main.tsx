@@ -11,6 +11,7 @@ import './styles/components.css';
 import './styles/shell.css';
 import './styles/map.css';
 import './styles/characters.css';
+import './styles/shipyard.css';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
 import { act, boot } from './net';
