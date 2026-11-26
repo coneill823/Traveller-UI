@@ -9,6 +9,7 @@ import { DiceDock } from '../modules/dice/DiceDock';
 import { InventoryPage } from '../modules/inventory/InventoryPage';
 import { TradePage } from '../modules/trade/TradePage';
 import { ShipyardPage } from '../modules/shipyard/ShipyardPage';
+import { CombatPage } from '../modules/combat/CombatPage';
 import { LibraryPage } from '../modules/library/LibraryPage';
 import { MapPage } from '../modules/map/MapPage';
 import { ObjectivesPage } from '../modules/objectives/ObjectivesPage';
@@ -28,6 +29,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { id: 'map', label: 'Map', icon: 'map' },
   { id: 'characters', label: 'Crew', icon: 'users' },
+  { id: 'combat', label: 'Combat', icon: 'sword' },
   { id: 'inventory', label: 'Cargo', icon: 'package' },
   { id: 'trade', label: 'Trade', icon: 'coins' },
   { id: 'shipyard', label: 'Yard', icon: 'wrench' },
@@ -205,6 +207,9 @@ export function Shell() {
       break;
     case 'shipyard':
       content = <ShipyardPage designId={route.parts[1]} />;
+      break;
+    case 'combat':
+      content = <CombatPage encounterId={route.parts[1]} />;
       break;
     case 'objectives':
       content = <ObjectivesPage />;

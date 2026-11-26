@@ -10,6 +10,7 @@ import {
   type Audience,
   type Body,
   type Character,
+  type Encounter,
   type Entity,
   type EntityType,
   type Item,
@@ -239,6 +240,41 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
       const { gm: _gm, known: _known, ...rest } = ship;
       return { ...rest, notes: visibleNotes(ship.notes, v) } as Entity;
     }
+    case 'encounter': {
+      // Hidden combatants, and anything they have done, stay with the GM.
+      const e = entity as Encounter;
+      if (e.status === 'setup' && !e.open) return null;
+      const { gm: _gm, known: _known, ...rest } = e;
+      const shown = e.combatants.filter((c) => !c.hidden);
+      const ids = new Set(shown.map((c) => c.id));
+      const detailed = new Set<Id>();
+      const combatants = shown.map((c) => {
+        const ch = get(c.characterId) as Character | undefined;
+        const open = !!ch && (ch.kind === 'pc' || knows(ch, 'details', v));
+        if (open) detailed.add(c.id);
+        const named = !!ch && (ch.kind === 'pc' || knows(ch, 'name', v));
+        return {
+          ...c,
+          seen: {
+            name: c.label ?? (named ? ch?.name : undefined) ?? (ch?.kind === 'creature' ? 'Creature' : 'Unknown'),
+            kind: ch?.kind ?? 'npc',
+            ...(ch?.portrait && (ch.kind === 'pc' || knows(ch, 'exists', v)) ? { portrait: ch.portrait } : {}),
+            health: ch ? healthOf(ch) : 'ok',
+          },
+        };
+      });
+      const log = e.log
+        .filter((r) => ids.has(r.combatantId))
+        .map((r) => ({
+          ...r,
+          steps: r.steps.map((s) => (s.targetId && !ids.has(s.targetId) ? { ...s, targetId: undefined } : s)),
+          // How much a stranger's armour stopped is not for the players to know.
+          results: r.results
+            .filter((x) => !x.targetId || ids.has(x.targetId))
+            .map((x) => (x.targetId && !detailed.has(x.targetId) ? { stepId: x.stepId, targetId: x.targetId, hit: x.hit, effect: x.effect, dealt: x.dealt, status: x.status, from: x.from, to: x.to } : x)),
+        }));
+      return { ...rest, combatants, log, turn: e.turn && ids.has(e.turn) ? e.turn : undefined, notes: visibleNotes(e.notes, v) } as Entity;
+    }
     case 'design': {
       // Drafts stay with their author until shared; anything put to the party is open to all.
       const d = entity as ShipDesign;
@@ -275,6 +311,16 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
     default:
       return facetView(entity, v) as Entity | null;
   }
+}
+
+/** Coarse health from current scores: END, STR and DEX against their full values. */
+function healthOf(c: Character): 'ok' | 'wounded' | 'unconscious' | 'dead' {
+  const scores = (['STR', 'DEX', 'END'] as const).map((k) => c.chars?.[k]).filter((x) => x !== undefined);
+  if (scores.length === 0) return 'ok';
+  if (scores.every((x) => x.value <= 0)) return 'dead';
+  if ((c.chars?.STR && c.chars.STR.value <= 0) || (c.chars?.DEX && c.chars.DEX.value <= 0) || c.conditions?.includes('Unconscious')) return 'unconscious';
+  if (scores.some((x) => x.value < x.max)) return 'wounded';
+  return 'ok';
 }
 
 /** Whether a viewer can see the things held by a character, ship or stash. */

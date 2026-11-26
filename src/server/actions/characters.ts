@@ -1,8 +1,10 @@
 /** Character actions: creating sheets, rolling checks and attacks from them, taking and healing damage. */
-import { applyDamage, attackDm, checkDm, defaultChar, hasTrait, isMelee, parseDamage, rollWeaponDamage, traitValue } from '../../shared/rules/character';
+import type { RulePack } from '../../shared/rulepack';
+import { applyDamage, attackDm, checkDm, defaultChar, hasTrait, isMelee, parseDamage, rollWeaponDamage, traitValue, type DamageResult } from '../../shared/rules/character';
 import type { CharKey, Character, CharScore, Id } from '../../shared/types';
 import { newId } from '../../shared/util';
 import { applyPreset, checkAudience, makeRoll, rollOptions } from './core';
+import type { Tx } from '../state';
 import { action, ActionError, check, type ActionCtx } from './registry';
 
 const CHAR_KEYS: readonly CharKey[] = ['STR', 'DEX', 'END', 'INT', 'EDU', 'SOC', 'PSI'];
@@ -145,10 +147,24 @@ action('character.reload', (ctx, p) => {
   });
 });
 
+/** Takes damage off a character's sheet (armour first) and marks them down if it drops them. */
+export function inflictDamage(tx: Tx, c: Character, amount: number, opts: Parameters<typeof applyDamage>[2], pack: RulePack): DamageResult {
+  const result = applyDamage(c, amount, opts, pack);
+  tx.update<Character>(c.id, (draft) => {
+    draft.chars = result.chars;
+    const conditions = new Set((draft.conditions ?? []).filter((x) => x !== 'Unconscious' && x !== 'Dead'));
+    if (result.status === 'unconscious') conditions.add('Unconscious');
+    if (result.status === 'dead') conditions.add('Dead');
+    draft.conditions = [...conditions];
+  });
+  return result;
+}
+
 action('character.damage', (ctx, p) => {
   const c = controlled(ctx, p.id);
   const amount = check.int(p.amount, 'amount', { min: 0, max: 100000 });
-  const result = applyDamage(
+  const result = inflictDamage(
+    ctx.tx,
     c,
     amount,
     {
@@ -161,13 +177,6 @@ action('character.damage', (ctx, p) => {
     },
     ctx.services.rules.pack,
   );
-  ctx.tx.update<Character>(c.id, (draft) => {
-    draft.chars = result.chars;
-    const conditions = new Set((draft.conditions ?? []).filter((x) => x !== 'Unconscious' && x !== 'Dead'));
-    if (result.status === 'unconscious') conditions.add('Unconscious');
-    if (result.status === 'dead') conditions.add('Dead');
-    draft.conditions = [...conditions];
-  });
   return { taken: result.taken, absorbed: result.absorbed, status: result.status, stunnedRounds: result.stunnedRounds };
 });
 

@@ -1,7 +1,7 @@
 /** Campaign-wide actions: settings, players, generic edits, knowledge reveals, notes and dice. */
 import { FACETS, PRESETS, toggleAudience, withAudience, type Viewer } from '../../shared/knowledge';
 import { rootField, type PatchOp } from '../../shared/patch';
-import { PARTY, type Audience, type Body, type Campaign, type Character, type Entity, type Id, type Note, type Objective, type Player, type Roll, type StarSystem } from '../../shared/types';
+import { PARTY, type Audience, type Body, type Campaign, type Character, type Encounter, type Entity, type Id, type Note, type Objective, type Player, type Roll, type StarSystem } from '../../shared/types';
 import { newId, rollDice, sum } from '../../shared/util';
 import { prettyCode } from '../auth';
 import type { Tx } from '../state';
@@ -128,6 +128,17 @@ export function cascadeDelete(tx: Tx, id: Id): void {
     case 'ship':
     case 'stash':
       for (const item of tx.where('item', 'holderId', id)) tx.delete(item.id);
+      // A deleted character leaves any fight it was in.
+      if (entity.type === 'character') {
+        for (const e of tx.all('encounter')) {
+          if (!e.combatants.some((c) => c.characterId === id)) continue;
+          tx.update<Encounter>(e.id, (draft) => {
+            const gone = new Set(draft.combatants.filter((c) => c.characterId === id).map((c) => c.id));
+            draft.combatants = draft.combatants.filter((c) => !gone.has(c.id));
+            if (draft.turn && gone.has(draft.turn)) draft.turn = draft.combatants.find((c) => !c.out && !c.acted)?.id;
+          });
+        }
+      }
       break;
     case 'campaign':
       throw new ActionError('The campaign itself cannot be deleted');

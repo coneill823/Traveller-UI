@@ -186,7 +186,12 @@ export class Hub implements Emitter {
     }
     // What a holder contains is visible only while the holder's contents are.
     if (entity.type === 'character' || entity.type === 'ship' || entity.type === 'stash') {
-      return this.state.where('item', 'holderId', entity.id).map((i) => i.id);
+      const ids = this.state.where('item', 'holderId', entity.id).map((i) => i.id);
+      // An encounter shows players a combatant's state of health, which comes off the sheet.
+      if (entity.type === 'character') {
+        for (const e of this.state.all('encounter')) if (e.status !== 'ended' && e.combatants.some((c) => c.characterId === entity.id)) ids.push(e.id);
+      }
+      return ids;
     }
     return [];
   }

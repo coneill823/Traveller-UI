@@ -398,6 +398,120 @@ export interface ShipDesign extends EntityBase {
   summary?: string;
 }
 
+// ───────────────────────────── encounters ─────────────────────────────
+
+export type CombatSide = 'party' | 'enemy' | 'neutral';
+
+/** What a player is shown of a combatant whose sheet they cannot see. */
+export interface CombatantSeen {
+  name: string;
+  kind: Character['kind'];
+  portrait?: string;
+  health: 'ok' | 'wounded' | 'unconscious' | 'dead';
+}
+
+export interface Combatant {
+  id: Id;
+  characterId: Id;
+  side: CombatSide;
+  /** What the table calls them, e.g. "Raider 2". Shown to players instead of the sheet's name. */
+  label?: string;
+  initiative?: number;
+  /** Token position on the battlemap, as fractions of its width and height. */
+  x?: number;
+  y?: number;
+  /** Not yet shown to the players. */
+  hidden?: boolean;
+  /** Out of the fight: down, fled or dead. */
+  out?: boolean;
+  /** Has taken a turn this round. */
+  acted?: boolean;
+  /** Reactions made since their last turn; each is DM-1 on their next actions. */
+  reactions?: number;
+  conditions?: string[];
+  /** Filled in by the server for players. */
+  seen?: CombatantSeen;
+}
+
+/** One thing done in a turn, in the order it was done. */
+export interface TurnStep {
+  id: Id;
+  /** An action id from the rules pack, or "custom". */
+  action: string;
+  type: 'significant' | 'minor' | 'free' | 'reaction';
+  label: string;
+  /** Ticked off as it is resolved at the table. */
+  done?: boolean;
+  /** Combatant acted upon. */
+  targetId?: Id;
+  weapon?: string;
+  /** The check: what was rolled in total and what it needed. */
+  roll?: { total: number; target?: number; dice?: number[]; dm?: number; rollId?: Id };
+  /** Damage rolled for a hit. The attack's Effect is added unless `addEffect` is false. */
+  damage?: number;
+  addEffect?: boolean;
+  ap?: number;
+  stun?: boolean;
+  /** False when the damage was noted but should not be taken off the target automatically. */
+  apply?: boolean;
+  /** Where a move ends, as map fractions. */
+  to?: { x: number; y: number };
+  note?: string;
+}
+
+/** What a step did, worked out when the turn was published. */
+export interface TurnResult {
+  stepId: Id;
+  targetId?: Id;
+  hit?: boolean;
+  effect?: number;
+  /** Damage dealt before armour, and what got through. */
+  dealt?: number;
+  taken?: number;
+  absorbed?: number;
+  status?: 'ok' | 'wounded' | 'unconscious' | 'dead';
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+}
+
+export interface TurnRecord {
+  id: Id;
+  round: number;
+  combatantId: Id;
+  /** The player who published it. */
+  by: Id;
+  steps: TurnStep[];
+  results: TurnResult[];
+  /** A reaction made out of turn rather than a full turn. */
+  reaction?: boolean;
+  at: number;
+}
+
+export interface BattleMap {
+  url: string;
+  width: number;
+  height: number;
+  /** Squares across the width of the image, if it has a grid; each is one combat square. */
+  squares?: number;
+  showGrid?: boolean;
+}
+
+/** A fight: who is in it, where they stand, whose turn it is and what has happened so far. */
+export interface Encounter extends EntityBase {
+  type: 'encounter';
+  name: string;
+  status: 'setup' | 'active' | 'ended';
+  /** Shown to players while still being set up. */
+  open?: boolean;
+  round: number;
+  /** The combatant whose turn it is. */
+  turn?: Id;
+  combatants: Combatant[];
+  map?: BattleMap;
+  log: TurnRecord[];
+  summary?: string;
+}
+
 // ───────────────────────────── inventory & cargo ─────────────────────────────
 
 /** A named place to keep things that is not a person or a ship: a vault, a cache, a storage unit. */
@@ -550,6 +664,7 @@ export type Entity =
   | Character
   | Ship
   | ShipDesign
+  | Encounter
   | Stash
   | Item
   | Market
@@ -574,6 +689,7 @@ export const ID_PREFIX: Record<EntityType, string> = {
   character: 'chr',
   ship: 'shp',
   design: 'dsn',
+  encounter: 'enc',
   stash: 'sth',
   item: 'itm',
   market: 'mkt',

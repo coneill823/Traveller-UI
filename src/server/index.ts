@@ -7,6 +7,7 @@ import './actions/characters';
 import './actions/inventory';
 import './actions/trade';
 import './actions/shipyard';
+import './actions/encounters';
 import './actions/objectives';
 import './actions/wiki';
 import type { Services } from './actions/registry';
