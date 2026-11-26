@@ -197,6 +197,16 @@ export class GitHubBackend implements WikiBackend {
       .map((e) => ({ path: e.path, sha: e.sha }));
   }
 
+  /** Every file under a folder of the repository, hidden folders included: used for rules packs kept beside the wiki. */
+  async readFolder(prefix: string, extension: string): Promise<{ path: string; text: string }[]> {
+    const head = await this.head();
+    const tree = await this.call<{ tree: { path: string; type: string; sha: string }[] }>('GET', `/git/trees/${head}?recursive=1`);
+    const wanted = tree.tree.filter((e) => e.type === 'blob' && e.path.startsWith(prefix) && e.path.toLowerCase().endsWith(extension));
+    const out: { path: string; text: string }[] = [];
+    for (const e of wanted) out.push({ path: e.path.slice(prefix.length), text: await this.read({ path: e.path, sha: e.sha }) });
+    return out;
+  }
+
   async read(file: WikiFile): Promise<string> {
     const blob = await this.call<{ content: string; encoding: string }>('GET', `/git/blobs/${file.sha}`);
     return blob.encoding === 'base64' ? Buffer.from(blob.content, 'base64').toString('utf8') : blob.content;

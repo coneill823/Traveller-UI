@@ -7,20 +7,25 @@ export class RulesService {
   pack: RulePack = EMPTY_PACK;
   private serialised = JSON.stringify(EMPTY_PACK);
 
-  constructor(private dir: string) {
+  private dirs: string[];
+
+  /** Packs are read from each folder in turn; later ones layer over earlier ones. */
+  constructor(dirs: string | string[]) {
+    this.dirs = Array.isArray(dirs) ? dirs : [dirs];
     this.reload();
   }
 
   reload(): void {
     let pack: RulePack = { packs: [] };
-    if (fs.existsSync(this.dir)) {
+    for (const dir of this.dirs) {
+      if (!fs.existsSync(dir)) continue;
       const folders = fs
-        .readdirSync(this.dir, { withFileTypes: true })
+        .readdirSync(dir, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .sort();
       for (const folder of folders) {
-        const full = path.join(this.dir, folder);
+        const full = path.join(dir, folder);
         const metaFile = path.join(full, 'pack.json');
         if (!fs.existsSync(metaFile)) continue;
         try {
@@ -40,7 +45,7 @@ export class RulesService {
     this.pack = pack;
     this.serialised = JSON.stringify(pack);
     if (pack.packs.length === 0) {
-      console.warn(`[rules] No rules packs found in ${this.dir}. The app will run, but rule tables (world data, trade, ship parts) will be empty.`);
+      console.warn(`[rules] No rules packs found in ${this.dirs.join(' or ')}. The app will run, but rule tables (world data, trade, ship parts) will be empty.`);
     } else {
       console.log(`[rules] Loaded ${pack.packs.map((p) => p.name).join(', ')}`);
     }

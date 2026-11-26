@@ -5,8 +5,10 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parsePage } from '../src/shared/markdown';
 import type { Body, StarSystem, WikiPage } from '../src/shared/types';
+import { RulesService } from '../src/server/rules';
 import { GitHubBackend, gitBlobSha } from '../src/server/wiki/backend';
-import { eventually, setTable, type Table } from './helpers';
+import { vaultRulepackDir, VAULT_RULEPACKS } from '../src/server/wiki/rulepacks';
+import { eventually, setTable, testConfig, type Table } from './helpers';
 
 const read = (dir: string, rel: string) => fs.readFileSync(path.join(dir, rel), 'utf8');
 const write = (dir: string, rel: string, content: string) => {
@@ -202,6 +204,30 @@ describe('wiki sync with a local Chronicler vault', () => {
   });
 });
 
+describe('rules packs kept in a local vault', () => {
+  it('are read in place from the hidden folder, which the wiki sync ignores', async () => {
+    const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'trav-vault-'));
+    const config = { ...testConfig(), wiki: { dir: vault, branch: 'main', pollSeconds: 3600, atlasFolder: 'Atlas' } };
+    expect(await vaultRulepackDir(config)).toBeUndefined();
+    write(vault, `${VAULT_RULEPACKS}/house/pack.json`, JSON.stringify({ id: 'house', name: 'House rules' }));
+    write(vault, `${VAULT_RULEPACKS}/house/tasks.json`, JSON.stringify({ defaultTarget: 7 }));
+    write(vault, 'Lore/Intro.md', '# Intro\n');
+    const dir = await vaultRulepackDir(config);
+    expect(dir).toBe(path.join(vault, VAULT_RULEPACKS));
+    expect(new RulesService([dir!]).pack.tasks?.defaultTarget).toBe(7);
+    const table = await setTable({ wiki: config.wiki });
+    try {
+      expect(table.running.services.rules.packNames()).toContain('House rules');
+      const summary = await table.gm.act('wiki.sync');
+      expect(summary.pagesRead).toBe(1);
+    } finally {
+      await table.close();
+      fs.rmSync(vault, { recursive: true, force: true });
+      fs.rmSync(config.dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
 /** A tiny in-memory stand-in for the parts of the GitHub API the backend uses. */
 function mockGitHub() {
   const files = new Map<string, string>([['Lore/Intro.md', '---\ntitle: Intro\n---\nWelcome.\n']]);
@@ -277,6 +303,24 @@ describe('wiki sync with a GitHub repository', () => {
   afterAll(async () => {
     await table.close();
     await new Promise((r) => gh.server.close(r));
+  });
+
+  it('fetches rules packs kept beside the wiki, and keeps them out of the wiki itself', async () => {
+    gh.files.set('.traveller-ui/rulepacks/house/pack.json', JSON.stringify({ id: 'house', name: 'House rules' }));
+    gh.files.set('.traveller-ui/rulepacks/house/tasks.json', JSON.stringify({ defaultTarget: 9 }));
+    gh.files.set('.traveller-ui/rulepacks/../../escape/evil.json', '{}');
+    gh.files.set('.traveller-ui/rulepacks/house/deep/nested.json', '{}');
+    const config = { ...testConfig(), wiki: { repo: 'owner/wiki', branch: 'main', token: 'good-token', pollSeconds: 3600, atlasFolder: 'Atlas' } };
+    const dir = await vaultRulepackDir(config, new GitHubBackend({ ...config.wiki, apiBase }));
+    expect(dir).toBe(path.join(config.dataDir, 'rulepacks-wiki'));
+    expect(fs.readdirSync(path.join(dir!, 'house')).sort()).toEqual(['pack.json', 'tasks.json']);
+    expect(fs.existsSync(path.join(config.dataDir, 'escape'))).toBe(false);
+    // Layered over whatever is in the usual folder.
+    const rules = new RulesService([path.join(config.dataDir, 'nothing-here'), dir!]);
+    expect(rules.packNames()).toEqual(['House rules']);
+    expect(rules.pack.tasks?.defaultTarget).toBe(9);
+    fs.rmSync(config.dataDir, { recursive: true, force: true });
+    for (const key of [...gh.files.keys()]) if (key.startsWith('.traveller-ui')) gh.files.delete(key);
   });
 
   it('reads pages from the repository', async () => {

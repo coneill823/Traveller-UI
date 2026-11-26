@@ -7,3 +7,7 @@ data/
 .env.*
 !.env.example
 coverage/
+
+# Rule tables transcribed from rulebooks stay out of the public repository.
+# Keep them here on the server, or in the wiki vault under .traveller-ui/rulepacks.
+rulepacks/*/

@@ -17,6 +17,7 @@ import { loadConfig, type Config } from './config';
 import { openPersistence } from './db';
 import { Hub } from './hub';
 import { RulesService } from './rules';
+import { vaultRulepackDir } from './wiki/rulepacks';
 import { State } from './state';
 import type { WikiBackend } from './wiki/backend';
 import { WikiService } from './wiki/sync';
@@ -34,7 +35,8 @@ export async function startServer(config: Config, opts: { quiet?: boolean; wikiB
   const persistence = openPersistence(config.dataDir);
   const state = new State(persistence);
   const auth = new Auth(persistence, config.gmPassword);
-  const rules = new RulesService(config.rulepackDir);
+  const vaultPacks = await vaultRulepackDir(config, opts.wikiBackend);
+  const rules = new RulesService(vaultPacks ? [config.rulepackDir, vaultPacks] : config.rulepackDir);
   const hub = new Hub(state);
   const wiki = new WikiService(state, config.wiki, rules, opts.wikiBackend);
   // Only the GM hears about wiki sync status.

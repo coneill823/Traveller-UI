@@ -7,21 +7,27 @@ their own devices and see only what their characters know.
 Everyone is connected to the same campaign at once: when the GM or a player changes something,
 every other screen updates within a moment.
 
-## What is in it so far
+## What is in it
 
-| Area | Status |
+| Screen | What it does |
 | --- | --- |
-| Live multi-user sync, GM / player sign-in, GM "view as player" preview | Done |
-| Knowledge control: reveal anything to the whole party or to one player | Done |
-| Universe map in the classic hex style, zooming from universe → sector → subsector → system → world | Done |
-| Universe designer: add and place sectors, name subsectors, place or roll systems, draw routes | Done |
-| Import from online generators (Second Survey tab/column, legacy SEC, JSON, CSV, loose lists) | Done |
-| System drill-down: stars, worlds, gas giants, belts, moons, stations, points of interest, write-ups | Done |
-| Route planner (jump rating, fuel, refuelling, travel zones) and objective tours | Done |
-| Objectives for the party and private ones per player | Done |
-| Chronicler wiki sync, both directions (local vault folder or GitHub repository) | Done |
-| Shared dice with boon/bane, hidden GM rolls and "rolled at the table" entry | Done |
-| Characters, inventory & cargo, trade, ship builder, personal combat, ship operations & space combat | In progress |
+| **Map** | The universe in the classic hex style, zooming from universe to sector, subsector, system and world. Add and place sectors, roll or place systems, draw routes, import from generators. Route planner for jump rating, fuel, refuelling and travel zones. |
+| **Crew** | Character sheets for travellers, NPCs and creatures: characteristics, skills, weapons and armour, with one-click checks, attacks and damage. Rolls can be made in the app or typed in from the table. |
+| **Combat** | Encounters with the opposition in initiative order along the top and the party along the bottom, an uploadable battlemap with draggable tokens, turns put together on an action bar and published to everyone as an animated replay. |
+| **Cargo** | Personal kit, ship's lockers and cargo holds for any number of people and ships; search, move things between holders, pay from personal credits or the ship's account. |
+| **Trade** | What is for sale here, on the world or in orbit, and around the system. Broker negotiations, freight, passengers, and trade leads about other systems that the GM hands out one at a time. |
+| **Ship** | The ship's status board: damage and faults flash on the hull plan, with systems, alerts and crew stations. Battle stations for space combat, where each crew member queues their station's actions and the ship acts as one. |
+| **Yard** | Ship design: start from a stock design or a bare hull, drag parts onto a hologram of the hull, see tonnage, power, cost and crew as you go, show the draft to the party, collect sign-off and commission it at the starport you are docked at. |
+| **Goals** | Objectives for the party and private ones per player, tied to places on the map. |
+| **Library** | Every page of the Chronicler wiki, revealed to players section by section. |
+| **Control** (GM) | Players and invite links, the campaign date, backups, wiki settings. |
+
+Across all of it:
+
+- **Live for everyone.** One shared campaign; a change on one screen reaches every other within a moment.
+- **The GM decides what players know.** Everything starts hidden and is revealed to the party or to one player.
+- **Shared dice** with boon and bane, hidden GM rolls and "rolled at the table" entry.
+- **Chronicler wiki sync in both directions**, from a vault folder or a GitHub repository.
 
 ## Running it
 
@@ -47,8 +53,14 @@ The server prints its address (for example `http://localhost:8787`) and, the fir
 
 ```bash
 docker build -t traveller-ui .
-docker run -p 8787:8787 -v traveller-data:/data -e GM_PASSWORD=choose-something traveller-ui
 ```
+
+```bash
+docker run -p 8787:8787 -v traveller-data:/data -e GM_PASSWORD=choose-something -e WIKI_REPO=your-name/Traveller-Campaign -e WIKI_TOKEN=github_pat_... traveller-ui
+```
+
+With `WIKI_REPO` set the container fetches the wiki and any rules packs kept beside it. To use
+packs from a folder instead, add `-v /path/to/rulepacks:/app/rulepacks`.
 
 ### Development
 
@@ -72,7 +84,7 @@ Settings are environment variables, or lines in a `.env` file next to `package.j
 | `WIKI_REPO`, `WIKI_BRANCH`, `WIKI_TOKEN` | GitHub repository holding the vault, its branch (default `main`) and an access token |
 | `WIKI_POLL_SECONDS` | How often GitHub is checked for changes (default 60) |
 | `WIKI_ATLAS_FOLDER` | Vault folder for pages the app creates (default `Atlas`) |
-| `RULEPACK_DIR` | Folder of rules packs (default `rulepacks`) |
+| `RULEPACK_DIR` | Folder of rules packs (default `rulepacks`). Packs in the wiki vault's `.traveller-ui/rulepacks` folder are loaded as well |
 
 The whole campaign is one SQLite file in `DATA_DIR`. The Control room can download a backup
 (one JSON file) and restore from one.
@@ -133,23 +145,60 @@ file. The format is detected automatically and previewed before anything is save
 
 Subsector-sized data (hexes 0101–0810) can be dropped into any of a sector's sixteen subsectors.
 
+## Using the tools
+
+### Combat
+
+1. The GM creates an encounter on the **Combat** screen. The party's characters are placed on the field; **Add NPC** makes up opponents on the spot or pulls them from the cast, optionally hidden until they act.
+2. **Battlemap** uploads any image. Say how many squares it is across and distances are shown in metres.
+3. Everyone drags their own token into place (the GM can move anyone), initiative is rolled or typed in, and the GM presses **Start**.
+4. On your turn, drag actions from the palette into the bar in the order you take them, tick each off as it is resolved at the table and note the rolls. Rolls made from the character sheet while planning are picked up automatically. Dragging your token plans a move.
+5. **Publish turn** shows everyone what you did as a replay, moves your token, takes damage off the target through its armour and passes play on. Earlier turns can be replayed from the log.
+
+Players see an NPC only once it is in the encounter, and then only its name and a rough state of health unless the GM reveals more.
+
+### The ship
+
+- On the **Ship** screen each player puts their character at a station (pilot, captain, engineer, sensors, gunner at a particular turret, marine).
+- The GM's **Simulate attack** takes an attack roll and damage, works out what gets through the armour, any critical hit and its severity, and the extra damage for every tenth of the hull lost. **System fault** breaks something without a shot being fired. Both light up on the hull plan for the whole crew.
+- **Battle stations**: the GM adds the other ships and their ranges. Each round has three steps (manoeuvre, attack, actions), with ships acting in initiative order. Every crew member adds their station's actions to the ship's shared plan, with the rolls; **Carry out step** resolves them together. Range changes, missile salvos in flight, sensor locks, countermeasures, repairs and the captain's initiative bonus are tracked for you.
+- Players see other ships as a name, a range band and a rough condition.
+
+### The yard
+
+- **New design** starts from one of the stock designs or a bare hull. Parts that the design still needs are marked; parts that do not fit, need a higher tech level or cannot be supplied by the starport you are docked at are locked with the reason.
+- Drag parts onto the hull or click them; drag blocks along the hull to rearrange. Hull outlines can be one of the built-in shapes, SVG path data pasted in or an `.svg` file, or a picture of a silhouette.
+- Drafts are private until you **Show the party**. **Ask for sign-off** puts the design to the other players; when all have signed (or the GM signs for the table) it can be commissioned, paid from a ship's account or a traveller's credits. Changing a design after sign-off asks everyone again.
+- Stock designs are ten per cent cheaper while they are built unchanged. Existing ships can be refitted for the difference in cost.
+
 ## Rules packs
 
 The engines in this repository are generic. The tables, prices and thresholds that come from a
-rulebook live in JSON **rules packs** under `rulepacks/`, loaded when the server starts. Packs are
-layered, so house rules or a supplement only need to list what they add or change. See
-`rulepacks/README.md`.
+rulebook live in JSON **rules packs**, loaded when the server starts. Packs are layered, so house
+rules or a supplement only need to list what they add or change. See `rulepacks/README.md` for
+the format.
 
-Without a pack the app still runs, but world profiles are shown undecoded and random generation
-is unavailable.
+**Rule tables transcribed from a rulebook are not part of this repository.** Keep them somewhere
+private. The server looks in two places:
+
+1. `RULEPACK_DIR` (default `rulepacks/` beside the app), one folder per pack.
+2. The wiki vault, in the hidden folder `.traveller-ui/rulepacks/`. With `WIKI_DIR` the folder is
+   read in place; with `WIKI_REPO` it is fetched from the repository each time the server starts.
+   The wiki sync ignores hidden folders, so the pack never shows up as wiki pages.
+
+The second option means a private campaign repository can carry both the wiki and the rules data,
+and a server only needs the two wiki settings to have everything.
+
+Without a pack the app still runs, but world profiles are shown undecoded and the trade tables,
+ship parts, combat actions and critical hit tables are empty.
 
 ## For developers
 
 ```
-src/shared   Types, hex maths, parsers, knowledge rules, route planning (used by both sides)
+src/shared   Types, hex maths, parsers, knowledge rules, route planning, rules engines (used by both sides)
 src/server   Node server: storage, sign-in, sync hub, actions, wiki sync
-src/web      React app
-rulepacks    Rule tables as data
+src/web      React app, one folder per screen under src/web/modules
+rulepacks    Rule tables as data (format notes only; the tables themselves are kept private)
 tests        Vitest: unit tests plus end-to-end tests that run the real server
 ```
 
@@ -158,6 +207,9 @@ tests        Vitest: unit tests plus end-to-end tests that run the real server
 - After every change the **hub** works out, per connection, how that viewer's redacted picture
   changed and sends only that difference.
 - What a viewer may see is decided in one place: `src/shared/knowledge.ts`.
+- Rules engines (`src/shared/rules`) take a rules pack and plain data and return plain data, so
+  they run the same on the server and in the browser and are easy to test.
+- Tests that need rule tables skip themselves when no pack is present.
 
 Traveller is a trademark of Mongoose Publishing. This is an unofficial fan-made tool and is not
 affiliated with or endorsed by Mongoose Publishing.
