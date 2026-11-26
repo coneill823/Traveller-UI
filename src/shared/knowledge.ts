@@ -76,6 +76,7 @@ export const FACETS: Partial<Record<EntityType, FacetSpec[]>> = {
       hint: 'World profile, starport, bases, travel zone, gas giants and stars.',
       fields: ['uwp', 'bases', 'remarks', 'zone', 'pbg', 'allegiance', 'stars', 'ext', 'survey'],
     },
+    { key: 'society', label: 'Society', hint: 'Its people in depth: cities, factions, courts, technology, culture and economy.', fields: ['society'] },
   ],
   body: [
     { key: 'exists', label: 'Detected', hint: 'The body appears in the system view.', fields: ['systemId', 'parentId', 'kind', 'orbit', 'mainworld'] },

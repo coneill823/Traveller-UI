@@ -122,6 +122,8 @@ export interface StarSystem extends EntityBase {
   ext?: { ix?: string; ex?: string; cx?: string; nobility?: string; worlds?: string; ru?: string };
   /** What a detailed survey of the whole system found. */
   survey?: { /** Age in billions of years. */ age: number; /** Giants-belts-terrestrials-baseline-spread. */ profile: string };
+  /** The people of the mainworld in depth. */
+  society?: Society;
 }
 
 /** Figures a detailed survey records for a star, world or moon. Everything is optional. */
@@ -224,6 +226,93 @@ export interface BodyDetail {
   moon?: { pd: number; km: number; hours: number; ecc?: number; retro?: boolean; range?: string };
   /** Rings: centre and width of each, in planetary diameters. */
   ringSpans?: { centre: number; span: number }[];
+  /** People living on a world other than the mainworld. */
+  settlement?: Settlement;
+}
+
+/** A lesser settlement of a system: its people, how it is run, and what it is for. */
+export interface Settlement {
+  pop: number;
+  gov: number;
+  law: number;
+  tl: number;
+  /** Spaceport class. */
+  port: string;
+  portName?: string;
+  classes?: { code: string; name: string }[];
+  /** Port, size, air, water, population, government, law and technology in the usual form. */
+  profile: string;
+}
+
+/** A named level on a scale, with what it means. */
+export interface SocietyPart {
+  id: string;
+  name: string;
+  level: number;
+  note?: string;
+}
+
+/** The people of a mainworld in depth: who they are, how they are ruled, what they may do, what they can make. */
+export interface Society {
+  people?: {
+    /** First digit of the population, and the whole of it. */
+    digit: number;
+    total: number;
+    /** How gathered the people are, 0 (spread everywhere) to 9 (all in one place). */
+    pcr: number;
+    pcrName?: string;
+    /** Percentage living in towns, and how many that is. */
+    urban: number;
+    urbanPeople: number;
+    cities: number;
+    cityPeople: number;
+    /** The largest cities, or the largest town where there is no city. */
+    largest?: number[];
+  };
+  government?: {
+    code: number;
+    /** On a world of many states: how many there are, the government of each, and the one by the starport that the rest of this describes. */
+    nations?: number[];
+    host?: number;
+    centralisation?: string;
+    centralisationName?: string;
+    authority?: string;
+    authorityName?: string;
+    /** How each function of government is made up. */
+    structure?: { function: string; functionName: string; code: string; name: string }[];
+    profile?: string;
+    factions?: { government: number; strength?: string; strengthName?: string; relation?: number; relationName?: string }[];
+  };
+  law?: {
+    justice?: string;
+    justiceName?: string;
+    /** Economic matters go to an administrative court of their own. */
+    economicCourts?: boolean;
+    uniformity?: string;
+    uniformityName?: string;
+    presumption?: boolean;
+    death?: boolean;
+    parts: SocietyPart[];
+    profile?: string;
+  };
+  tech?: { high: number; least?: number; parts: SocietyPart[]; profile?: string };
+  culture?: (SocietyPart & { leaning?: string })[];
+  economy?: {
+    importance: number;
+    resource: number;
+    labour: number;
+    infrastructure: number;
+    efficiency: number;
+    ru: number;
+    gwpPerHead: number;
+    gwp: number;
+    wtn: number;
+    inequality: number;
+    development: number;
+    tariff?: string;
+    tariffRate?: number;
+  };
+  port?: { highport?: boolean; standing?: string; daily?: number; weekly?: number };
 }
 
 export type BodyKind = 'star' | 'planet' | 'gasGiant' | 'belt' | 'moon' | 'station' | 'poi';

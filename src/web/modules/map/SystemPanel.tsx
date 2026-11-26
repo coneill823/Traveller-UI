@@ -14,6 +14,7 @@ import { Icon } from '../../ui/Icon';
 import { KnowledgeBadge, KnowledgeControl } from '../../ui/Knowledge';
 import { Notes } from '../../ui/Notes';
 import { systemLabel, type MapData, type SysInfo } from './mapData';
+import { SocietyView } from './SocietyView';
 import { selectSystem, setPlanner, useMap } from './mapStore';
 import { SystemEditor } from './SystemEditor';
 
@@ -208,6 +209,8 @@ export function SystemPanel({ info }: { info: SysInfo }) {
           </dl>
         </div>
       )}
+
+      {sys.society && <SocietyView society={sys.society} />}
 
       <ObjectivesHere systemId={sys.id} />
 

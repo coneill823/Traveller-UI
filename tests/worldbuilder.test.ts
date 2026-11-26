@@ -5,12 +5,14 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { formulaError } from '../src/shared/dicex';
-import type { DetailRules, RulePack, SystemRules } from '../src/shared/rulepack';
+import type { DetailRules, RulePack, SocietyRules, SystemRules } from '../src/shared/rulepack';
+import { settleSystem, societyOf, type SocietyInput } from '../src/shared/rules/society';
 import { auToOrbit, generateSystem, orbitToAu, parseStar, type SystemLayout } from '../src/shared/rules/system';
-import { generateWorld } from '../src/shared/rules/world';
+import { generateWorld, systemTradeCodes } from '../src/shared/rules/world';
 import { detailSystem } from '../src/shared/rules/worlddetail';
 import type { Body, StarSystem } from '../src/shared/types';
 import { seededRng } from '../src/shared/util';
+import { parseUwp } from '../src/shared/uwp';
 import { splitStars } from '../src/server/actions/map';
 import { eventually, HAS_CORE_RULES, hasPack, loadPacks, setTable, type Table } from './helpers';
 
@@ -267,6 +269,109 @@ describe.skipIf(!HAS_PACK)('star systems with the world builder pack', () => {
     });
   });
 
+  describe('the people of a world', () => {
+    const society = pack.world?.society as SocietyRules;
+
+    it('has formulas and conditions the engine can read', () => {
+      const problems: string[] = [];
+      const check = (where: string, formula: string | number | undefined) => {
+        const problem = formula === undefined ? undefined : formulaError(formula);
+        if (problem) problems.push(`${where}: ${problem}`);
+      };
+      for (const [name, formula] of Object.entries(society.f)) check(name, formula);
+      for (const [name, list] of Object.entries(society.dm)) for (const row of list) (check(name, row.when), check(name, row.times));
+      for (const row of society.urbanisation) check('urbanisation', row.pct);
+      for (const row of society.urbanLimits) (check('limit', row.when), check('limit', row.least), check('limit', row.most));
+      for (const row of [...society.structureRules, ...society.uniformityRules]) (check('rule', row.when), check('rule', row.roll));
+      for (const row of society.minimumTech) check('least technology', row.when);
+      for (const row of society.tech) (check(row.id, row.from), check(row.id, row.least), check(row.id, row.most), check(row.id, row.zeroWhen));
+      for (const row of society.classes) (check(row.code, row.when), check(row.code, row.on));
+      for (const row of society.tariffs) check('tariff', row.rate);
+      for (const row of society.traffic) check('traffic', row.daily);
+      for (const row of society.captiveLaw) check('captive law', row.f);
+      expect(problems).toEqual([]);
+    });
+
+    it('has tables of the shape the engine expects', () => {
+      // every list of modifiers the tables point at is there
+      for (const part of [...society.lawParts, ...society.tech]) expect(society.dm[part.dm], part.dm).toBeDefined();
+      for (const trait of society.culture) expect(society.dm[trait.id], trait.id).toBeDefined();
+      // what each branch of law means, level by level; what each field of technology brings
+      for (const part of society.lawParts) expect(society.lawEffects[part.id].length, part.id).toBeGreaterThan(10);
+      for (const [field, steps] of Object.entries(society.techSteps)) {
+        expect(society.tech.some((t) => t.id === field), field).toBe(true);
+        expect(steps.length, field).toBeGreaterThan(8);
+      }
+      expect(society.techModifier).toHaveLength(11);
+      // rules that settle a thing outright name codes of the table they stand in for
+      const codes = (rows: { code: string }[]) => rows.map((r) => r.code);
+      for (const rule of society.structureRules) for (const code of [rule.code, ...(rule.rows ?? []).map((r) => r.code)]) if (code) expect(codes(society.structure)).toContain(code);
+      for (const rule of society.uniformityRules) for (const code of [rule.code, ...(rule.rows ?? []).map((r) => r.code)]) if (code) expect(codes(society.uniformity)).toContain(code);
+      // the functions of government are among the authorities; one authority is none of them (a balance)
+      for (const fn of society.functions) expect(codes(society.authority)).toContain(fn.code);
+      expect(society.authority.some((a) => !society.functions.some((fn) => fn.code === a.code))).toBe(true);
+      // a multiplier for every government and port; shipping for every importance
+      expect(society.governmentModifier).toHaveLength(16);
+      for (const port of 'ABCDEX') expect(society.portModifier[port], port).toBeGreaterThan(0);
+      for (const band of society.wtnPort) for (const port of 'ABCDEX') expect(band.mods[port], port).toBeDefined();
+      for (let i = 1; i < society.traffic.length; i++) expect(society.traffic[i].least).toBeLessThan(society.traffic[i - 1].least);
+      expect(society.traffic[society.traffic.length - 1].least).toBeLessThan(-5);
+      // tariffs: some regimes send the dice round again for the rate
+      expect(society.tariffs.some((t) => t.again)).toBe(true);
+      expect(society.tariffs.filter((t) => t.rate).length).toBeGreaterThan(3);
+    });
+
+    it('describes worlds of every sort without a figure out of place', () => {
+      const core = loadPacks('mgt2-core').world!;
+      const problems: string[] = [];
+      let settlements = 0;
+      for (let seed = 1; seed <= 400; seed++) {
+        const rng = seededRng(seed);
+        const made = generateWorld(pack.world!, rng);
+        const uwp = parseUwp(made.uwp)!;
+        const main: SocietyInput = {
+          port: uwp.starport, size: uwp.size, atm: uwp.atm, hyd: uwp.hydro, pop: uwp.pop, gov: uwp.gov, law: uwp.law, tl: uwp.tl,
+          codes: systemTradeCodes(made.uwp, undefined, core), bases: made.bases.length, belts: Number(made.pbg[1]), giants: Number(made.pbg[2]),
+          habitability: seed % 2 ? 6 : undefined, resources: seed % 2 ? 7 : undefined,
+        };
+        const s = societyOf(pack.world!, rng, main);
+        if (uwp.pop === 0) {
+          expect(s).toBeUndefined();
+          continue;
+        }
+        const say = (text: string) => problems.push(`seed ${seed} ${made.uwp}: ${text}`);
+        const p = s!.people!;
+        if (!(p.total >= 10 ** uwp.pop && p.total < 10 ** (uwp.pop + 1))) say(`population ${p.total}`);
+        if (p.urbanPeople > p.total || p.cityPeople > p.urbanPeople) say('more townsfolk than people');
+        if (p.pcr < 0 || p.pcr > 9) say(`concentration ${p.pcr}`);
+        for (const part of s!.law!.parts) if (part.level < 0 || !part.note) say(`law ${part.id} ${part.level}`);
+        for (const part of s!.tech!.parts) if (!(part.level >= 0 && part.level <= Math.max(16, uwp.tl))) say(`technology ${part.id} ${part.level}`);
+        for (const trait of s!.culture!) if (!(trait.level >= 1)) say(`culture ${trait.id}`);
+        const e = s!.economy!;
+        for (const [name, value] of Object.entries(e)) if (typeof value === 'number' && !Number.isFinite(value)) say(`${name} is ${value}`);
+        if (e.efficiency === 0 || Math.abs(e.efficiency) > 5) say(`efficiency ${e.efficiency}`);
+        if (e.inequality < 0 || e.inequality > 100) say(`inequality ${e.inequality}`);
+        if (s!.government!.code !== uwp.gov) say('government changed');
+        // and the rest of its system
+        const known = { stars: ['G5 V'], gasGiants: main.giants, belts: main.belts, mainworld: { size: Math.max(1, uwp.size), atm: uwp.atm, hydro: uwp.hydro } };
+        const layout = generateSystem(rules, rng, known);
+        detailSystem(pack.world!, rng, layout, known);
+        settleSystem(pack.world!, rng, layout, main);
+        for (const world of layout.worlds) {
+          for (const d of [world.detail, ...world.moons.map((m) => m.detail)]) {
+            if (!d?.settlement) continue;
+            settlements++;
+            if (d.settlement.pop >= uwp.pop) say('a settlement as large as the mainworld');
+            if (d.settlement.tl > uwp.tl) say('a settlement beyond the mainworld in technology');
+          }
+          if (world.mainworld && world.detail?.settlement) say('the mainworld counted as a settlement');
+        }
+      }
+      expect(problems).toEqual([]);
+      expect(settlements).toBeGreaterThan(50);
+    });
+  });
+
   describe('on a table', () => {
     let table: Table;
     let sectorId: string;
@@ -299,6 +404,9 @@ describe.skipIf(!HAS_PACK)('star systems with the world builder pack', () => {
         expect(main).toHaveLength(1);
         expect(main[0].id).toBe(mainId);
         expect(main[0].data?.orbitNo).toBeGreaterThan(0);
+        // its people in depth, where anyone lives there
+        if (parseUwp(before.uwp)!.pop > 0) expect(system.society?.people?.total).toBeGreaterThan(0);
+        else expect(system.society).toBeUndefined();
         // each world in detail, the mainworld as its profile has it
         expect(main[0].data?.detail?.sah).toBe(before.uwp!.slice(1, 4));
         for (const body of bodies.filter((b) => b.origin === 'survey' && b.kind !== 'star')) expect(body.data?.detail, body.name).toBeDefined();

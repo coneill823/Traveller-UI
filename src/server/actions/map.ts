@@ -3,10 +3,11 @@ import { SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, formatHex, parseHex, subsectorOf
 import { PRESETS } from '../../shared/knowledge';
 import { generateNames } from '../../shared/names';
 import { generateSystem, likelyMainworld, starsLabel, type KnownSystem, type SystemLayout } from '../../shared/rules/system';
+import { settleSystem, societyOf, type SocietyInput } from '../../shared/rules/society';
 import { detailSystem } from '../../shared/rules/worlddetail';
 import { generateArea, generateWorld, suggestTradeRoutes, systemTradeCodes } from '../../shared/rules/world';
 import type { ParsedWorld } from '../../shared/sectorFormats';
-import type { Body, BodyData, BodyKind, Campaign, Id, RouteKind, Sector, StarSystem, TravelZone } from '../../shared/types';
+import type { Body, BodyData, BodyKind, Campaign, Id, RouteKind, Sector, Society, StarSystem, TravelZone } from '../../shared/types';
 import { formatPbg, isValidUwp, parsePbg, parseUwp } from '../../shared/uwp';
 import { hashString, seededRng } from '../../shared/util';
 import type { Tx } from '../state';
@@ -185,6 +186,7 @@ action('system.regenerate', (ctx, p) => {
     delete s.remarks;
     delete s.ext;
     delete s.survey;
+    delete s.society;
     if (world.worlds !== undefined) s.ext = { worlds: String(world.worlds) };
   });
   rebuildBodies(ctx.tx, system.id);
@@ -220,7 +222,10 @@ action('system.rebuildBodies', (ctx, p) => {
   requireGm(ctx.me);
   const id = check.id(p.id, 'id');
   rebuildBodies(ctx.tx, id);
-  ctx.tx.update<StarSystem>(id, (s) => void delete s.survey);
+  ctx.tx.update<StarSystem>(id, (s) => {
+    delete s.survey;
+    delete s.society;
+  });
 });
 
 /** What a system's listing already settles, for a detailed survey to build around. `codes` are its trade codes. */
@@ -256,7 +261,7 @@ const GIANT_NAMES: Record<string, string> = { GS: 'Small gas giant', GM: 'Medium
  * mainworld keeps its record (and with it what is known of it, its notes, and anything placed on it);
  * the referee's own additions are kept.
  */
-export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout): void {
+export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout, society?: Society): void {
   const old = tx.where('body', 'systemId', system.id).filter((b) => b.origin === 'survey');
   const oldMain = old.find((b) => b.mainworld);
   // What the players already knew of the stars, giants and belts on the chart carries over to the new
@@ -319,6 +324,8 @@ export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout): v
 
   tx.update<StarSystem>(system.id, (s) => {
     s.survey = { age: layout.age, profile: layout.profile };
+    if (society) s.society = society;
+    else delete s.society;
     if (!s.stars) s.stars = starsLabel(layout.stars);
     if (!s.pbg && layout.worlds.length) s.pbg = formatPbg({ popMultiplier: 0, belts: Math.min(9, layout.belts), gasGiants: Math.min(9, layout.gasGiants) });
     if (layout.notes.length) s.gm = { ...(s.gm ?? {}), surveyNotes: layout.notes.join(' ') };
@@ -333,7 +340,8 @@ action('system.detail', (ctx, p) => {
   const rules = world.system;
   if (!rules) throw new ActionError('The installed rules have no tables for surveying a whole system');
   const seed = p.seed === undefined ? Math.floor(Math.random() * 2 ** 31) : check.int(p.seed, 'seed', { min: 0 });
-  const known = knownFromListing(system, world.tradeCodes ? systemTradeCodes(system.uwp, system.remarks, world) : []);
+  const codes = world.tradeCodes ? systemTradeCodes(system.uwp, system.remarks, world) : [];
+  const known = knownFromListing(system, codes);
   const rng = seededRng(seed);
   const layout = generateSystem(rules, rng, known);
   // each world in detail, where the rules run to it
@@ -344,7 +352,28 @@ action('system.detail', (ctx, p) => {
     if (pick) pick.mainworld = true;
     else if (layout.worlds.length) layout.notes.push('No rocky world or belt here suits a mainworld; it is left off the survey for you to place.');
   }
-  applyLayout(ctx.tx, system, layout);
+  // its people in depth, and the lesser settlements of the system, where the rules run to them
+  const uwp = parseUwp(system.uwp);
+  let society: Society | undefined;
+  if (uwp && uwp.pop > 0 && world.society) {
+    const main = layout.worlds.find((w) => w.mainworld);
+    const pbg = parsePbg(system.pbg);
+    const input: SocietyInput = {
+      port: uwp.starport, size: Math.max(0, uwp.size), atm: Math.max(0, uwp.atm), hyd: Math.max(0, uwp.hydro), pop: uwp.pop, gov: Math.max(0, uwp.gov), law: Math.max(0, uwp.law), tl: Math.max(0, uwp.tl),
+      digit: pbg?.popMultiplier || undefined,
+      codes,
+      bases: [...(system.bases ?? '')].filter((b) => 'NSMDWRK'.includes(b)).length,
+      waystation: (system.bases ?? '').includes('W'),
+      belts: Math.max(0, layout.belts - (main?.kind === 'belt' ? 1 : 0)),
+      giants: layout.gasGiants,
+      habitability: main?.detail?.habitability,
+      resources: main?.detail?.resources,
+      locked: main?.detail?.day?.lock === 'star',
+    };
+    society = societyOf(world, rng, input);
+    settleSystem(world, rng, layout, input);
+  }
+  applyLayout(ctx.tx, system, layout, society);
   return { seed, stars: layout.stars.length, worlds: layout.worlds.length, moons: layout.worlds.reduce((n, w) => n + w.moons.length, 0) };
 });
 

@@ -22,7 +22,7 @@ belong somewhere private: either drop pack folders in here on the machine that r
 
 | File | Section | Used for |
 | --- | --- | --- |
-| `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation; under `system`, the tables for building a whole star system; under `detail`, those for working each of its worlds out |
+| `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation; under `system`, the tables for building a whole star system; under `detail`, those for working each of its worlds out; under `society`, those for the people of a world |
 | `tasks.json` | `tasks` | Difficulties, effect bands, characteristic modifiers |
 | `characters.json` | `characters` | Characteristics, skills and specialities, species, careers |
 | `gear.json` | `gear` | Personal weapons, armour and weapon traits; other equipment, special ammunition, and the rules for finding and buying things |
@@ -48,6 +48,12 @@ moons and rings, atmosphere codes with their subtypes, taints and gas mixes, wat
 locks, climate, geology, life, and the ratings for resources and habitability. Its procedure is in
 `src/shared/rules/worlddetail.ts`, and `tests/fixtures/detailRules.ts` is a made-up example. A pack
 may carry `system` without `detail`: the survey then stops at orbits and sizes.
+
+A `society` object holds what describes the people of a mainworld: population and cities,
+the make-up of government and its factions, courts and the branches of law, technology field by
+field, cultural traits, the economy and the port, and the rules for lesser settlements elsewhere in
+the system. Its procedure is in `src/shared/rules/society.ts`, with `tests/fixtures/societyRules.ts`
+as a made-up example.
 
 Formulas and conditions are written as text, so a pack states how a figure is worked out rather
 than only listing values:

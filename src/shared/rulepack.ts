@@ -95,6 +95,8 @@ export interface WorldRules {
   system?: SystemRules;
   /** Each world of a system in detail: makeup, air, water, days, climate, geology and life. */
   detail?: DetailRules;
+  /** The people of a mainworld in depth, and the lesser settlements of its system. */
+  society?: SocietyRules;
 }
 
 /** A modifier that applies when a condition holds; `times` multiplies it by a value (per star, per object). */
@@ -248,6 +250,76 @@ export interface DetailRules {
   complexity: { code: number; name: string }[];
   /** How restless the ground is, by its total stress. */
   activity: (RollRow & { name: string })[];
+  dm: Record<string, WhenDm[]>;
+  f: Record<string, string | number>;
+}
+
+/** A row with a code and a name; `flag` names a condition that holds when the row is the result. */
+export interface CodedRow extends RollRow {
+  code: string;
+  name: string;
+  flag?: string;
+}
+
+/** A way of settling something outright where a condition holds: a fixed code, a roll on rows of its own, or a modifier to the usual roll. */
+export interface DecideRule {
+  when: string;
+  code?: string;
+  roll?: string;
+  rows?: (RollRow & { code: string })[];
+  dm?: number;
+}
+
+/**
+ * Tables and formulas for the people of a world. Formulas are strings in the language of
+ * `dicex.ts`; the names each may use are listed in `src/shared/rules/society.ts`.
+ */
+export interface SocietyRules {
+  concentration: (RollRow & { code: number; name: string })[];
+  /** Share of people living in towns, by 2D and modifiers; `pct` is a formula. */
+  urbanisation: (RollRow & { pct: string })[];
+  /** Limits on that share where a condition holds. A least beats a most. */
+  urbanLimits: { when: string; least?: string; most?: string }[];
+  centralisation: CodedRow[];
+  authority: CodedRow[];
+  /** The functions of government; `code` matches an authority code, and `flag` is set while its makeup is being settled. */
+  functions: { code: string; name: string; flag?: string }[];
+  /** How a function is made up, by 2D and modifiers. A `sole` body in authority over a unitary government runs every function. */
+  structure: (CodedRow & { sole?: boolean })[];
+  structureRules: DecideRule[];
+  strength: CodedRow[];
+  relations: (RollRow & { code: number; name: string })[];
+  justice: CodedRow[];
+  uniformity: CodedRow[];
+  uniformityRules: DecideRule[];
+  /** The branches of law, each with what its levels mean from 0 upward and the list of modifiers it takes. */
+  lawParts: { id: string; name: string; dm: string }[];
+  lawEffects: Record<string, string[]>;
+  /** The modifier a roll of two dice gives a technology sub-level, for rolls of 2 to 12. */
+  techModifier: number[];
+  /** The least technology that keeps people alive, by the world's air and how liveable it is: the highest that applies. */
+  minimumTech: { when: string; tl: number }[];
+  /** Technology sub-levels in turn: each from a base, held within bounds (formulas over those before it), with its modifiers. */
+  tech: { id: string; name: string; from: string; least: string; most: string; dm: string; zeroWhen?: string }[];
+  /** What each level of a field brings, from 0 upward. */
+  techSteps: Record<string, string[]>;
+  /** Cultural traits in turn; each takes the modifier list of its own name. */
+  culture: { id: string; name: string; low: string; high: string }[];
+  portModifier: Record<string, number>;
+  governmentModifier: number[];
+  tradeModifier: Record<string, number>;
+  /** The port's bearing on the world trade number, by band of the base figure. */
+  wtnPort: (RollRow & { mods: Record<string, number> })[];
+  tariffs: (RollRow & { name: string; rate?: string; again?: boolean })[];
+  /** The roll needed for a highport, by starport class. */
+  highport: Record<string, number>;
+  /** Shipping by importance: the first row whose `least` the world reaches. */
+  traffic: { least: number; name: string; daily: string; weekly: number }[];
+  spaceports: CodedRow[];
+  secondaryGovernment: (RollRow & { gov: number })[];
+  /** What a lesser settlement is for: what it takes, and the roll (if any) that decides it. `flag` is set when it applies. */
+  classes: { code: string; name: string; when: string; on?: string; flag?: string }[];
+  captiveLaw: (RollRow & { f: string })[];
   dm: Record<string, WhenDm[]>;
   f: Record<string, string | number>;
 }

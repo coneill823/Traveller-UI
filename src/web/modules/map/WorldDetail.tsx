@@ -4,6 +4,7 @@
  */
 import type { ReactNode } from 'react';
 import type { Body, BodyDetail } from '../../../shared/types';
+import { SettlementRows } from './SocietyView';
 
 const num = (n: number, digits = 3) => (Math.abs(n) >= 1000 ? Math.round(n).toLocaleString('en-GB') : String(Number(n.toPrecision(digits))));
 const kelvin = (k: number) => `${Math.round(k).toLocaleString('en-GB')} K (${Math.round(k - 273).toLocaleString('en-GB')} °C)`;
@@ -133,6 +134,7 @@ export function WorldDetail({ body, detail }: { body: Body; detail: BodyDetail }
       <Rows title="Ground" rows={ground} />
       <Rows title="Life" rows={life} />
       <Rows title="Worth" rows={worth} />
+      {d.settlement && <SettlementRows settlement={d.settlement} />}
     </>
   );
 }
