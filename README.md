@@ -14,7 +14,7 @@ every other screen updates within a moment.
 | **Map** | The universe in the classic hex style, zooming from universe to sector, subsector, system and world. Add and place sectors, roll or place systems, draw routes, import from generators. Route planner for jump rating, fuel, refuelling and travel zones. |
 | **Crew** | Character sheets for travellers, NPCs and creatures: characteristics, skills, weapons and armour, with one-click checks, attacks and damage. Rolls can be made in the app or typed in from the table. |
 | **Combat** | Encounters with the opposition in initiative order along the top and the party along the bottom, an uploadable battlemap with draggable tokens, turns put together on an action bar and published to everyone as an animated replay. |
-| **Cargo** | Personal kit, ship's lockers and cargo holds for any number of people and ships; search, move things between holders, pay from personal credits or the ship's account. |
+| **Cargo** | Personal kit, ship's lockers and cargo holds for any number of people and ships; search, move things between holders, pay from personal credits or the ship's account. A catalogue of everything the rules packs list, with how hard each thing is to find on the world you are on. |
 | **Trade** | What is for sale here, on the world or in orbit, and around the system. Broker negotiations, freight, passengers, and trade leads about other systems that the GM hands out one at a time. |
 | **Ship** | The ship's status board: damage and faults flash on the hull plan, with systems, alerts and crew stations. Battle stations for space combat, where each crew member queues their station's actions and the ship acts as one. |
 | **Yard** | Ship design: start from a stock design or a bare hull, drag parts onto a hologram of the hull, see tonnage, power, cost and crew as you go, show the draft to the party, collect sign-off and commission it at the starport you are docked at. |
@@ -156,6 +156,13 @@ Subsector-sized data (hexes 0101–0810) can be dropped into any of a sector's s
 5. **Publish turn** shows everyone what you did as a replay, moves your token, takes damage off the target through its armour and passes play on. Earlier turns can be replayed from the log.
 
 Players see an NPC only once it is in the encounter, and then only its name and a rough state of health unless the GM reveals more.
+
+### Shopping
+
+- **Add** on the **Cargo** screen opens the catalogue: weapons, armour and every other piece of equipment the installed rules packs list, searchable and filtered by section or tech level. **Add** records an item; **Buy** also takes its price from the traveller's credits or the ship's account.
+- The catalogue knows which world the party is on. Each line shows the modifier for finding the item there (tech level, starport, population, trade codes); tick what else applies, such as paying over the odds, or switch to the black market, where the law level counts and prices multiply. Click the modifier to roll the check for the traveller you are buying for.
+- Equipment can be bought as a prototype, or as an older design built at a higher tech level, where the rules allow it. **Buying rules** keeps the tables to hand.
+- Weapons and armour bought with **Also put it on the sheet** are ready to use. Armour that needs a skill, or that lends strength, shows in every check made while it is worn. A weapon that takes special ammunition has a **Loaded with** choice on the sheet, and attacks and damage follow what is loaded.
 
 ### The ship
 

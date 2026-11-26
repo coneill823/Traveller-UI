@@ -25,7 +25,7 @@ belong somewhere private: either drop pack folders in here on the machine that r
 | `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation |
 | `tasks.json` | `tasks` | Difficulties, effect bands, characteristic modifiers |
 | `characters.json` | `characters` | Characteristics, skills and specialities, species, careers |
-| `gear.json` | `gear` | Personal weapons, armour and weapon traits |
+| `gear.json` | `gear` | Personal weapons, armour and weapon traits; other equipment, special ammunition, and the rules for finding and buying things |
 | `combat.json` | `combat` | Personal combat: actions, range bands, modifiers, cover, damage |
 | `trade.json` | `trade` | Trade goods, price table, passengers, freight |
 | `ships.json` | `ships` | Hulls, armour, drives, power plants, bridges, computers, sensors, software, weapons and mounts, fittings, crew, shipyards and stock designs |
@@ -33,6 +33,34 @@ belong somewhere private: either drop pack folders in here on the machine that r
 
 The exact shape of every section is documented by the TypeScript types in
 `src/shared/rulepack.ts`. A section that is missing simply switches off the features that need it.
+
+## Adding equipment
+
+`gear.json` can list more than weapons and armour. `equipment` holds everything else, each entry
+with a `group` (and optionally a `section`) to file it under, a tech level, mass, price and a line
+on what it does. Where a price or mass is not a plain figure, say so in `costNote` or `kgNote`.
+`kind` marks augments, software, modifications, consumables and ammunition. For example:
+
+```json
+{
+  "equipment": [
+    { "id": "storm-lantern", "name": "Storm Lantern", "group": "Survival gear", "tl": 5, "kg": 1, "cost": 30, "effect": "Stays lit in any weather." }
+  ]
+}
+```
+
+The same file can carry:
+
+- `availability`: the check for finding an item and what a world adds to it (tech level gap,
+  starport, population, trade codes), circumstances to tick, and the black market's law level
+  modifiers, price multiples and result tables.
+- `variants`: prototypes and older designs built at a higher tech level, as multiples of cost and mass.
+- Ammunition entries with an `ammo` block saying how they change the weapon that fires them
+  (range, damage dice, armour piercing, blast, traits). Weapons say which they take with `ammoClass`.
+- `reference`: short rules to keep at hand on the catalogue's **Buying rules** tab.
+
+Armour may give `str` and `dex` changes while worn, a `skill` it needs, `slots` for modifications
+and a `versus` line for protection that only counts against some attacks.
 
 ## Adding a ship part or a stock design
 

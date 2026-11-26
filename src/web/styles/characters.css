@@ -469,3 +469,75 @@ tr.illegal td:first-child {
   color: var(--gm);
   background: linear-gradient(90deg, var(--gm-ghost), transparent 40%), var(--bg-1);
 }
+
+/* ── equipment catalogue ── */
+.gap-8 {
+  gap: 8px;
+}
+.select.sm {
+  width: auto;
+  height: 26px;
+  font-size: 12px;
+  background-position:
+    calc(100% - 14px) 11px,
+    calc(100% - 9px) 11px;
+}
+.catalogue-where {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-2);
+}
+.catalogue-options {
+  gap: 6px 16px;
+}
+.catalogue-list {
+  max-height: min(52vh, 560px);
+  border: 1px solid var(--line);
+}
+.catalogue-list thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+}
+.catalogue-list td {
+  vertical-align: top;
+}
+.catalogue-list tr.muted td {
+  opacity: 0.45;
+}
+.catalogue-list button.chip:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.catalogue-rules section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.catalogue-rules p {
+  margin: 0;
+  max-width: 90ch;
+  line-height: 1.5;
+}
+.catalogue-rules h4 {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.catalogue-rules ol {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.5;
+}
+.rule-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.table.compact td,
+.table.compact th {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}

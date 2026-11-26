@@ -245,6 +245,11 @@ export interface CharacterWeapon {
   /** Rounds left in the weapon. */
   ammo?: number;
   note?: string;
+  tl?: number;
+  /** Which special ammunition it takes ('pistol', 'rifle', 'shotgun' or 'heavy'). */
+  ammoClass?: string;
+  /** Special ammunition loaded: the catalogue entry it comes from. */
+  load?: { id: string; name: string };
 }
 
 export interface CharacterArmour {
@@ -253,10 +258,20 @@ export interface CharacterArmour {
   name: string;
   protection: number;
   laserProtection?: number;
+  /** Protection that only counts against some attacks, in words. */
+  versus?: string;
   rad?: number;
   kg?: number;
   worn: boolean;
   note?: string;
+  /** Changes to STR and DEX while worn: for checks and carrying, not for taking damage. */
+  str?: number;
+  dex?: number;
+  /** Skill needed to move freely in it. */
+  skill?: { name: string; level: number };
+  /** Powered: weighs nothing on the wearer while it runs. */
+  powered?: boolean;
+  slots?: number;
 }
 
 /** A player character, non-player character or creature. */

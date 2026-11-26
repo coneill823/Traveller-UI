@@ -3,6 +3,7 @@ import { contentsVisible, type Viewer } from '../../shared/knowledge';
 import type { PatchOp } from '../../shared/patch';
 import { rootField } from '../../shared/patch';
 import type { Character, CharacterArmour, CharacterWeapon, Entity, Id, Item, ItemCategory, Ship, Stash } from '../../shared/types';
+import { armourFromDef, equipmentCategory, catalogueName, variantFigures, weaponFromDef } from '../../shared/rules/gear';
 import { newId } from '../../shared/util';
 import type { Tx } from '../state';
 import { applyPreset, checkAudience } from './core';
@@ -96,21 +97,35 @@ action('item.create', (ctx, p) => {
   let weapon: CharacterWeapon | undefined;
   let armour: CharacterArmour | undefined;
 
-  if (p.defKind === 'weapon' || p.defKind === 'armour') {
+  let trait: string | undefined;
+  if (p.defKind === 'weapon' || p.defKind === 'armour' || p.defKind === 'equipment') {
     // From the rules catalogue.
     const defId = check.str(p.defId, 'defId', { max: 80 });
+    const carried = holder.type === 'character' ? true : undefined;
     if (p.defKind === 'weapon') {
       const def = gear?.weapons.find((w) => w.id === defId);
       if (!def) throw new ActionError('That weapon is not in the catalogue');
-      const name = def.tl !== undefined && gear!.weapons.filter((w) => w.name === def.name).length > 1 ? `${def.name} (TL${def.tl})` : def.name;
-      data = { holderId: holder.id, name, category: 'weapon', qty: 1, kg: def.kg, value: def.cost, tl: def.tl, defId: def.id, note: def.note, carried: true };
-      weapon = { id: newId('wpn'), defId: def.id, name, skill: def.skill, damage: def.damage, range: def.range, traits: def.traits, magazine: def.magazine, ammo: typeof def.magazine === 'number' ? def.magazine : undefined, note: def.note };
-    } else {
+      weapon = { id: newId('wpn'), ...weaponFromDef(def, gear) };
+      data = { holderId: holder.id, name: weapon.name, category: 'weapon', qty: 1, kg: def.kg, value: def.cost, tl: def.tl, defId: def.id, note: def.note, carried };
+    } else if (p.defKind === 'armour') {
       const def = gear?.armour.find((a) => a.id === defId);
       if (!def) throw new ActionError('That armour is not in the catalogue');
-      const name = `${def.name} (TL${def.tl})`;
-      data = { holderId: holder.id, name, category: 'armour', qty: 1, kg: def.kg, value: def.cost, tl: def.tl, defId: def.id, note: def.note, carried: true };
-      armour = { id: newId('arm'), defId: def.id, name, protection: def.protection, laserProtection: def.laserProtection, rad: def.rad, kg: def.kg, worn: false, note: def.note };
+      armour = { id: newId('arm'), ...armourFromDef(def), worn: false };
+      data = { holderId: holder.id, name: armour.name, category: 'armour', qty: 1, kg: def.kg, value: def.cost, tl: def.tl, defId: def.id, note: [def.versus, def.note].filter(Boolean).join('. ') || undefined, carried };
+    } else {
+      const def = gear?.equipment?.find((e) => e.id === defId);
+      if (!def) throw new ActionError('That item is not in the catalogue');
+      // A prototype, or one built at a higher tech level than listed.
+      const variant = p.variant === undefined || p.variant === null ? undefined : gear?.variants?.find((v) => v.id === p.variant);
+      if (p.variant && !variant) throw new ActionError('There is no such version of that item');
+      const steps = p.steps === undefined ? 1 : check.int(p.steps, 'steps', { min: 1, max: 20 });
+      const figures = variantFigures(def, variant, steps);
+      if (variant && figures.steps === 0) throw new ActionError(`${def.name} does not come as ${variant.name.toLowerCase()}`);
+      const base = catalogueName(def, gear!.equipment!);
+      const name = variant ? `${base}, ${variant.name.toLowerCase()}${variant.perTl ? ` (TL${figures.tl})` : ''}` : base;
+      const notes = [def.effect, def.kgNote ? `Mass: ${def.kgNote}.` : '', def.costNote ? `Price: ${def.costNote}.` : '', variant?.note].filter(Boolean);
+      data = { holderId: holder.id, name, category: equipmentCategory(def), qty: 1, kg: figures.kg, value: figures.cost, tl: figures.tl, defId: def.id, note: notes.join(' ') || undefined, carried: def.kind === 'augment' || def.kind === 'software' ? undefined : carried };
+      if (def.kind === 'augment') trait = def.effect ? `${base}: ${def.effect}` : base;
     }
     if (p.qty !== undefined) data.qty = check.int(p.qty, 'qty', { min: 1, max: 100000 });
   } else {
@@ -135,16 +150,28 @@ action('item.create', (ctx, p) => {
     const used = cargoUsed(ctx.tx, ship.id);
     if (ship.cargo !== undefined && used + (data.tons ?? 0) * data.qty > ship.cargo + 1e-9) throw new ActionError(`Not enough cargo space: ${Math.max(0, ship.cargo - used)} tons free`);
   }
+  // Paying for it: the price, times whatever the seller is asking over the odds, from the holder's own funds.
+  let paid: number | undefined;
+  if (p.pay) {
+    if (holder.type === 'stash') throw new ActionError('A store has no credits of its own: buy for a traveller or a ship');
+    if (data.value === undefined) throw new ActionError('That has no listed price: agree one with the referee and add it as a gift');
+    const mult = p.priceMult === undefined ? 1 : check.num(p.priceMult, 'priceMult', { min: 0, max: 1000 });
+    paid = Math.round(data.value * data.qty * mult);
+    const purse = holder as Character | Ship;
+    if (balanceOf(purse) < paid && ctx.me.role !== 'gm') throw new ActionError(`Not enough credits: Cr${balanceOf(purse).toLocaleString('en-GB')} available, Cr${paid.toLocaleString('en-GB')} needed`);
+    adjustFunds(ctx.tx, purse, -paid);
+  }
   const item = ctx.tx.create('item', data);
 
-  // Optionally put a catalogue weapon or armour straight onto the character's sheet.
+  // Optionally put a catalogue weapon or armour straight onto the character's sheet; an augment is noted among their traits.
   if (p.equip && holder.type === 'character') {
     ctx.tx.update<Character>(holder.id, (c) => {
       if (weapon) c.weapons = [...(c.weapons ?? []), weapon];
       if (armour) c.armour = [...(c.armour ?? []), { ...armour, worn: (c.armour ?? []).every((a) => !a.worn) }];
+      if (trait && !(c.traits ?? []).includes(trait)) c.traits = [...(c.traits ?? []), trait];
     });
   }
-  return { id: item.id };
+  return { id: item.id, paid };
 });
 
 const ITEM_FIELDS = ['name', 'category', 'qty', 'kg', 'value', 'tl', 'note', 'tags', 'carried', 'tons', 'illegal'];

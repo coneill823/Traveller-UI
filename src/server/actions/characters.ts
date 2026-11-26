@@ -1,6 +1,7 @@
 /** Character actions: creating sheets, rolling checks and attacks from them, taking and healing damage. */
 import type { RulePack } from '../../shared/rulepack';
 import { applyDamage, attackDm, checkDm, defaultChar, hasTrait, isMelee, parseDamage, rollWeaponDamage, traitValue, type DamageResult } from '../../shared/rules/character';
+import { loadedWeapon } from '../../shared/rules/gear';
 import type { CharKey, Character, CharScore, Id } from '../../shared/types';
 import { newId } from '../../shared/util';
 import { applyPreset, checkAudience, makeRoll, rollOptions } from './core';
@@ -79,8 +80,10 @@ action('character.check', (ctx, p) => {
 action('character.attack', (ctx, p) => {
   const c = controlled(ctx, p.id);
   const pack = ctx.services.rules.pack;
-  const weapon = c.weapons?.find((w) => w.id === p.weaponId);
-  if (!weapon) throw new ActionError('That weapon is no longer on the sheet');
+  const carried = c.weapons?.find((w) => w.id === p.weaponId);
+  if (!carried) throw new ActionError('That weapon is no longer on the sheet');
+  // special ammunition changes what the weapon does
+  const weapon = loadedWeapon(carried, pack.gear);
   const mods: Record<string, number> = {};
   for (const [id, count] of Object.entries(check.obj(p.mods ?? {}, 'mods'))) mods[id] = check.int(count, `mods.${id}`, { min: 0, max: 10 });
   const fire = check.oneOf(p.fire ?? 'single', 'fire', ['single', 'burst', 'auto'] as const);
@@ -108,7 +111,7 @@ action('character.attack', (ctx, p) => {
       w.ammo = (w.ammo ?? 0) - shots;
     });
   }
-  const label = `Attack: ${weapon.name}${fire === 'burst' ? ' (burst)' : fire === 'auto' ? ' (full auto)' : ''}`;
+  const label = `Attack: ${weapon.name}${weapon.load ? ` [${weapon.load.name}]` : ''}${fire === 'burst' ? ' (burst)' : fire === 'auto' ? ' (full auto)' : ''}`;
   const roll = makeRoll(ctx, { label, dm, target, actor: actorName(c), kind: 'attack', characterId: c.id, breakdown: parts, ...rollOptions(p) });
   return { id: roll.id, dice: roll.dice, total: roll.total, effect: roll.effect, hit: (roll.effect ?? -1) >= 0, dm, damageDice: parseDamage(weapon.damage)?.dice ?? 0 };
 });
@@ -116,14 +119,15 @@ action('character.attack', (ctx, p) => {
 action('character.weaponDamage', (ctx, p) => {
   const c = controlled(ctx, p.id);
   const pack = ctx.services.rules.pack;
-  const weapon = c.weapons?.find((w) => w.id === p.weaponId);
-  if (!weapon) throw new ActionError('That weapon is no longer on the sheet');
+  const carried = c.weapons?.find((w) => w.id === p.weaponId);
+  if (!carried) throw new ActionError('That weapon is no longer on the sheet');
+  const weapon = loadedWeapon(carried, pack.gear);
   const spec = parseDamage(weapon.damage);
   if (!spec) throw new ActionError(`${weapon.name} has no damage dice to roll`);
   const opts = rollOptions({ to: p.to, manual: p.manual }, spec.dice);
   const result = rollWeaponDamage(c, weapon, { effect: p.effect === undefined ? 0 : check.int(p.effect, 'effect', { min: -20, max: 40 }), burst: !!p.burst, manual: opts.manual }, pack)!;
   const roll = makeRoll(ctx, {
-    label: `Damage: ${weapon.name}`,
+    label: `Damage: ${weapon.name}${weapon.load ? ` [${weapon.load.name}]` : ''}`,
     dm: result.mod,
     manual: opts.manual,
     fixedDice: result.dice,

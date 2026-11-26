@@ -157,6 +157,10 @@ export interface WeaponDef {
   magazineCost?: number;
   traits?: string[];
   note?: string;
+  /** Which special ammunition it can take ('pistol', 'rifle', 'shotgun' or 'heavy'); none when absent. */
+  ammoClass?: string;
+  /** The book it is listed in, for supplements. */
+  source?: string;
 }
 
 export interface ArmourDef {
@@ -173,12 +177,134 @@ export interface ArmourDef {
   /** Powered armour carries its own weight. */
   powered?: boolean;
   note?: string;
+  /** Catalogue section, e.g. "Civilian suits". */
+  group?: string;
+  /** Protection that only counts against some attacks, in words: "+16 vs. lasers and fire". */
+  versus?: string;
+  /** Changes to the wearer's STR and DEX while it is worn (for checks and carrying, not for taking damage). */
+  str?: number;
+  dex?: number;
+  /** Slots for modifications (battle dress). */
+  slots?: number;
+  source?: string;
+}
+
+/** How a kind of special ammunition changes the weapon that fires it. */
+export interface AmmoEffect {
+  /** Multiple of the weapon's ordinary magazine cost. */
+  costMult: number;
+  /** Weapon classes it is made for; see WeaponDef.ammoClass. */
+  weapons: string[];
+  /** Further classes it becomes available for at a later tech level. */
+  later?: { tl: number; weapons: string[] };
+  /** Change to the weapon's range, in percent; or a fixed range in metres. */
+  rangePct?: number;
+  range?: number;
+  damage?: { set?: string; dice?: number; perDie?: number; none?: boolean; special?: boolean };
+  /** Armour piercing: so many points per damage die (added to the weapon's own), or a multiple of its own. */
+  ap?: { perDie?: number; mult?: number; beforeBonus?: boolean };
+  blast?: { set?: number; mult?: number; base?: number; perDie?: number };
+  /** Traits gained and lost. */
+  traits?: string[];
+  strip?: string[];
+}
+
+/** Anything in the catalogue that is neither a weapon nor a suit of armour. */
+export interface EquipmentDef {
+  id: string;
+  name: string;
+  /** Chapter of the catalogue, and the section within it. */
+  group: string;
+  section?: string;
+  tl?: number;
+  /** Where the tech level is not one figure: "TL8+". */
+  tlNote?: string;
+  /** Mass in kilograms; none means too little to count. */
+  kg?: number;
+  kgNote?: string;
+  cost?: number;
+  /** A price that is not a plain figure: "x2 the magazine", "+25% of augment". */
+  costNote?: string;
+  /** What it does, in a line. */
+  effect?: string;
+  /** Modification slots it takes (battle dress), or the bandwidth it needs (software). */
+  slots?: number;
+  bandwidth?: number;
+  kind?: 'augment' | 'software' | 'modification' | 'consumable' | 'ammunition';
+  /** Computers and electronics get cheaper and lighter when built at a higher tech level. */
+  electronic?: boolean | 'computer';
+  ammo?: AmmoEffect;
+  source?: string;
+}
+
+/** A band of values with the modifier it gives. */
+export interface DmBand {
+  min?: number;
+  max?: number;
+  dm: number;
+  name?: string;
+}
+
+export interface TableResult {
+  min?: number;
+  max?: number;
+  name: string;
+  note?: string;
+}
+
+/** Finding an item for sale: the check, and what a world adds to or takes from it. */
+export interface AvailabilityRules {
+  check: { skills: string[]; target: number };
+  note?: string;
+  /** By how many tech levels the item is above the world; every band that fits applies. */
+  tlAbove: DmBand[];
+  /** By starport class. */
+  starport: Record<string, number>;
+  tradeCodes: { codes: string[]; dm: number }[];
+  population: DmBand[];
+  /** Circumstances the buyer or the referee chooses. */
+  options: { id: string; name: string; dm: number; priceMult?: number; excludes?: string[] }[];
+  referee?: { min: number; max: number };
+  blackMarket?: {
+    skills: string[];
+    note?: string;
+    lawLevel: DmBand[];
+    categories: { id: string; name: string; dm: number; priceMult: number; examples?: string }[];
+    attention?: { effect: number; roll: string; results: TableResult[] };
+    sentencing?: { roll: string; note?: string; results: TableResult[] };
+  };
+}
+
+/** An item built ahead of or behind its listed tech level. */
+export interface GearVariant {
+  id: string;
+  name: string;
+  note?: string;
+  /** Tech levels earlier (negative) than the listing. */
+  tl?: number;
+  costMult?: number;
+  kgMult?: number;
+  /** Different multiples for computers and electronics. */
+  electronic?: { costMult: number; kgMult: number };
+  availabilityDm?: number;
+  /** Applied once for every tech level above the listing. */
+  perTl?: { costMult: number; kgMult: number };
+  only?: 'electronic';
+  maxSteps?: number;
+  computerSteps?: number;
 }
 
 export interface GearRules {
   weapons: WeaponDef[];
   armour: ArmourDef[];
   weaponTraits: { id: string; name: string; note: string }[];
+  equipment?: EquipmentDef[];
+  availability?: AvailabilityRules;
+  variants?: GearVariant[];
+  /** What can be wrong with a prototype: roll one die. */
+  quirks?: string[];
+  /** Short rules to keep at hand when shopping. */
+  reference?: { title: string; text: string }[];
 }
 
 export interface CombatRules {

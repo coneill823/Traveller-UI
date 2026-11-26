@@ -80,18 +80,47 @@ export interface CheckSpec {
   extra?: number;
 }
 
+/** What worn armour adds to (or takes from) STR or DEX: powered suits and battle dress. */
+export function armourBonus(character: Character, key: CharKey): number {
+  if (key !== 'STR' && key !== 'DEX') return 0;
+  let total = 0;
+  for (const a of character.armour ?? []) if (a.worn) total += (key === 'STR' ? a.str : a.dex) ?? 0;
+  return total;
+}
+
+/** A characteristic as it counts for checks and carrying: the current score with any help from worn armour. */
+export function effectiveScore(character: Character, key: CharKey): number | undefined {
+  const score = character.chars?.[key]?.value;
+  return score === undefined ? undefined : Math.max(0, score + armourBonus(character, key));
+}
+
+/** Penalties for wearing armour without the skill it calls for: one per missing level, or the unskilled penalty. */
+export function armourSkillParts(character: Character, pack: RulePack): DmPart[] {
+  const parts: DmPart[] = [];
+  for (const a of character.armour ?? []) {
+    if (!a.worn || !a.skill) continue;
+    const level = skillLevel(character.skills, a.skill.name);
+    if (level === null) parts.push({ label: `${a.name}: no ${a.skill.name}`, dm: unskilledDm(character.skills, pack) });
+    else if (level < a.skill.level) parts.push({ label: `${a.name}: ${a.skill.name} ${level}, needs ${a.skill.level}`, dm: level - a.skill.level });
+  }
+  return parts.filter((p) => p.dm !== 0);
+}
+
 /** Total modifier for a check, with the parts that make it up. */
 export function checkDm(character: Character, spec: CheckSpec, pack: RulePack): { dm: number; parts: DmPart[] } {
   const parts: DmPart[] = [];
   if (spec.char) {
     const score = character.chars?.[spec.char]?.value;
-    parts.push({ label: `${spec.char} ${score ?? '—'}`, dm: charDm(score, pack.tasks) });
+    const bonus = armourBonus(character, spec.char);
+    const label = bonus && score !== undefined ? `${spec.char} ${score}${bonus > 0 ? '+' : '−'}${Math.abs(bonus)} in armour` : `${spec.char} ${score ?? '—'}`;
+    parts.push({ label, dm: charDm(effectiveScore(character, spec.char), pack.tasks) });
   }
   if (spec.skill) {
     const level = skillLevel(character.skills, spec.skill);
     if (level === null) parts.push({ label: `${spec.skill} (unskilled)`, dm: unskilledDm(character.skills, pack) });
     else parts.push({ label: `${spec.skill} ${level}`, dm: level });
   }
+  parts.push(...armourSkillParts(character, pack));
   if (spec.extra) parts.push({ label: 'Situation', dm: spec.extra });
   return { dm: parts.reduce((n, p) => n + p.dm, 0), parts };
 }
@@ -117,21 +146,28 @@ export interface DamageSpec {
   mod: number;
   /** "DD" weapons multiply the total. */
   destructive: boolean;
+  /** Half dice ("D3"): each die counts 1 to 3. */
+  half?: boolean;
 }
 
-/** Parses "3D", "3D-3", "1D+2", "2DD". Returns null for weapons that deal no direct damage. */
+/** Parses "3D", "3D-3", "1D+2", "2DD", "D3". Returns null for weapons that deal no direct damage. */
 export function parseDamage(text: string | undefined): DamageSpec | null {
   if (!text) return null;
+  const half = /^\s*(\d*)\s*D3\s*([+-]\s*\d+)?\s*$/i.exec(text);
+  if (half) return { dice: Number(half[1] || 1), destructive: false, half: true, mod: half[2] ? Number(half[2].replace(/\s+/g, '')) : 0 };
   const m = /^\s*(\d+)\s*(D{1,2})\s*([+-]\s*\d+)?\s*$/i.exec(text);
   if (!m) return null;
   return { dice: Number(m[1]), destructive: m[2].length === 2, mod: m[3] ? Number(m[3].replace(/\s+/g, '')) : 0 };
 }
 
-/** Numeric value of a trait such as "AP 3" or "Auto 2" (0 when absent). */
+/** Stands for "ignores all armour" (AP ∞). */
+export const AP_ALL = 9999;
+
+/** Numeric value of a trait such as "AP 3", "Auto 4 (8)" or "Blast 1,000" (0 when absent). */
 export function traitValue(traits: string[] | undefined, name: string): number {
   for (const t of traits ?? []) {
-    const m = new RegExp(`^${name}\\s*(\\d+)?$`, 'i').exec(t.trim());
-    if (m) return m[1] ? Number(m[1]) : 1;
+    const m = new RegExp(`^${name}\\s*(∞|[\\d,]+)?(\\s*\\(.*\\))?$`, 'i').exec(t.trim());
+    if (m) return m[1] === '∞' ? AP_ALL : m[1] ? Number(m[1].replace(/,/g, '')) : 1;
   }
   return 0;
 }
@@ -171,7 +207,7 @@ export function attackDm(character: Character, weapon: CharacterWeapon, spec: At
     parts.push({ label: times > 1 ? `${mod.name} ×${times}` : mod.name, dm: mod.dm * times });
   }
   // Heavy recoil: a penalty when the user is not strong enough.
-  const strDm = charDm(character.chars?.STR?.value, pack.tasks);
+  const strDm = charDm(effectiveScore(character, 'STR'), pack.tasks);
   if (hasTrait(weapon.traits, 'Very Bulky') && strDm < 2) parts.push({ label: 'Very Bulky', dm: strDm - 2 });
   else if (hasTrait(weapon.traits, 'Bulky') && strDm < 1) parts.push({ label: 'Bulky', dm: strDm - 1 });
   if (spec.extra) parts.push({ label: 'Situation', dm: spec.extra });
@@ -180,13 +216,14 @@ export function attackDm(character: Character, weapon: CharacterWeapon, spec: At
 
 function bestOf(character: Character, keys: CharKey[], pack: RulePack): CharKey {
   let best = keys[0];
-  for (const k of keys) if (charDm(character.chars?.[k]?.value, pack.tasks) > charDm(character.chars?.[best]?.value, pack.tasks)) best = k;
+  for (const k of keys) if (charDm(effectiveScore(character, k), pack.tasks) > charDm(effectiveScore(character, best), pack.tasks)) best = k;
   return best;
 }
 
 /** Range band for a distance in metres, following the pack's short/long/extreme rules. */
 export function rangeBand(weaponRange: number | 'melee', metres: number, combat: CombatRules | undefined, scopeAimed = false): string | null {
-  if (weaponRange === 'melee' || !combat) return null;
+  // a range of 0 marks something placed or dropped rather than aimed
+  if (weaponRange === 'melee' || weaponRange === 0 || !combat) return null;
   const r = combat.range;
   if (metres > weaponRange * r.extremeMultiple) return 'out';
   if (!scopeAimed && metres > r.unscopedExtremeBeyond) return 'extreme';
@@ -218,12 +255,13 @@ export function rollWeaponDamage(
 ): DamageRoll | null {
   const spec = parseDamage(weapon.damage);
   if (!spec) return null;
-  const dice = opts.manual && opts.manual.length === spec.dice ? opts.manual : rollDice(spec.dice, rng);
+  const rolled = opts.manual && opts.manual.length === spec.dice ? opts.manual : rollDice(spec.dice, rng);
+  const dice = spec.half ? rolled.map((d) => Math.ceil(d / 2)) : rolled;
   const parts: DmPart[] = [];
   if (spec.mod) parts.push({ label: 'Weapon', dm: spec.mod });
   if (opts.effect) parts.push({ label: 'Effect', dm: opts.effect });
   if (isMelee(weapon) && (pack.combat?.damage.meleeAddsStrDm ?? true)) {
-    const strDm = charDm(character.chars?.STR?.value, pack.tasks);
+    const strDm = charDm(effectiveScore(character, 'STR'), pack.tasks);
     if (strDm) parts.push({ label: 'STR', dm: strDm });
   }
   const auto = traitValue(weapon.traits, 'Auto');
@@ -237,7 +275,7 @@ export function rollWeaponDamage(
     notes.push(`Destructive ×${mult}`);
   }
   const ap = traitValue(weapon.traits, 'AP');
-  if (ap) notes.push(`AP ${ap}`);
+  if (ap) notes.push(ap >= AP_ALL ? 'Ignores armour' : `AP ${ap}`);
   const blast = traitValue(weapon.traits, 'Blast');
   if (blast) notes.push(`Blast ${blast} m`);
   if (hasTrait(weapon.traits, 'Stun')) notes.push('Stun');
@@ -262,7 +300,8 @@ export function wornProtection(character: Character, opts: { laser?: boolean } =
   let total = 0;
   for (const a of character.armour ?? []) {
     if (!a.worn) continue;
-    total += opts.laser && a.laserProtection !== undefined ? Math.max(a.protection, a.laserProtection) : a.protection;
+    // armour with its own figure against lasers uses that instead, better or worse
+    total += opts.laser && a.laserProtection !== undefined ? a.laserProtection : a.protection;
   }
   return total;
 }
@@ -322,8 +361,8 @@ export function healthStatus(character: Character): DamageResult['status'] {
   return applyDamage(character, 0, { armour: false }).status;
 }
 
-/** Kilograms a character can carry without penalty. */
+/** Kilograms a character can carry without penalty. Armour that strengthens the wearer counts. */
 export function carryLimit(character: Character): number {
   const athletics = Math.max(skillLevel(character.skills, 'Athletics (strength)') ?? 0, 0) + Math.max(skillLevel(character.skills, 'Athletics (endurance)') ?? 0, 0);
-  return (character.chars?.STR?.max ?? 0) + (character.chars?.END?.max ?? 0) + athletics;
+  return Math.max(0, (character.chars?.STR?.max ?? 0) + armourBonus(character, 'STR') + (character.chars?.END?.max ?? 0) + athletics);
 }

@@ -5,6 +5,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { ArmourDef, WeaponDef } from '../../../shared/rulepack';
 import { carryLimit, charDm, defaultChar, healthStatus, joinSkill, parseDamage, skillLevel, unskilledDm, wornProtection } from '../../../shared/rules/character';
+import { ammoFor, armourFromDef, loadedWeapon, weaponFromDef } from '../../../shared/rules/gear';
 import type { CharKey, Character, CharacterArmour, CharacterWeapon } from '../../../shared/types';
 import { newId } from '../../../shared/util';
 import { patch, run, setFields, upload } from '../../net';
@@ -139,31 +140,53 @@ function DamageDialog({ c, onClose }: { c: Character; onClose: () => void }) {
 
 // ───────────────────────────── gear pickers ─────────────────────────────
 
+function rangeLabel(range: number | 'melee'): string {
+  return range === 'melee' ? 'Melee' : range === 0 ? 'No range' : range >= 10000 ? `${range / 1000} km` : `${range} m`;
+}
+
+/** What a suit does beyond its protection, and whether its wearer has the skill for it. */
+function armourLine(a: CharacterArmour, c: Character): string {
+  const parts: string[] = [];
+  if (a.str) parts.push(`STR ${a.str > 0 ? '+' : ''}${a.str}`);
+  if (a.dex) parts.push(`DEX ${a.dex > 0 ? '+' : ''}${a.dex}`);
+  if (a.skill) {
+    const level = skillLevel(c.skills, a.skill.name);
+    if (level === null || level < a.skill.level) parts.push(`needs ${a.skill.name} ${a.skill.level}`);
+  }
+  return parts.join(' · ');
+}
+
 function WeaponPicker({ c, onClose }: { c: Character; onClose: () => void }) {
   const gear = useRules().gear;
   const [q, setQ] = useState('');
+  const [group, setGroup] = useState('');
   const [custom, setCustom] = useState({ name: '', skill: 'Gun Combat (slug)', damage: '3D', range: '10', traits: '' });
-  const list = useMemo(() => (gear?.weapons ?? []).filter((w) => !q.trim() || `${w.name} ${w.group} ${w.skill}`.toLowerCase().includes(q.trim().toLowerCase())), [gear, q]);
+  const groups = useMemo(() => [...new Set((gear?.weapons ?? []).map((w) => w.group))].sort(), [gear]);
+  const list = useMemo(
+    () => (gear?.weapons ?? []).filter((w) => (!group || w.group === group) && (!q.trim() || `${w.name} ${w.group} ${w.skill}`.toLowerCase().includes(q.trim().toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name) || (a.tl ?? 0) - (b.tl ?? 0)),
+    [gear, q, group],
+  );
   const add = async (w: CharacterWeapon) => {
     await patch(c.id, [{ op: 'push', path: ['weapons'], value: w }]);
     toast(`${w.name} added`, 'ok');
   };
-  const fromDef = (d: WeaponDef): CharacterWeapon => ({
-    id: newId('wpn'),
-    defId: d.id,
-    name: d.tl !== undefined && (gear?.weapons.filter((x) => x.name === d.name).length ?? 0) > 1 ? `${d.name} (TL${d.tl})` : d.name,
-    skill: d.skill,
-    damage: d.damage,
-    range: d.range,
-    traits: d.traits,
-    magazine: d.magazine,
-    ammo: typeof d.magazine === 'number' ? d.magazine : undefined,
-    note: d.note,
-  });
+  const fromDef = (d: WeaponDef): CharacterWeapon => ({ id: newId('wpn'), ...weaponFromDef(d, gear) });
   return (
     <Modal title="Add a weapon" icon="sword" size="wide" onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Done</button>}>
       <div className="col gap-12">
-        <input className="input" autoFocus placeholder="Search weapons…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="row">
+          <input className="input grow" autoFocus placeholder="Search weapons…" value={q} onChange={(e) => setQ(e.target.value)} />
+          {groups.length > 1 && (
+            <select className="select" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Kind of weapon" style={{ maxWidth: 200 }}>
+              <option value="">Every kind</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>
+                  {g.charAt(0).toUpperCase() + g.slice(1)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
         {list.length > 0 ? (
           <div className="scroll" style={{ maxHeight: 340, border: '1px solid var(--line)' }}>
             <table className="table">
@@ -181,12 +204,12 @@ function WeaponPicker({ c, onClose }: { c: Character; onClose: () => void }) {
               <tbody>
                 {list.map((w) => (
                   <tr key={w.id}>
-                    <td>
+                    <td title={w.note}>
                       {w.name}
                       <div className="tiny faint">{w.skill}</div>
                     </td>
                     <td className="mono">{w.tl ?? '—'}</td>
-                    <td className="mono">{typeof w.range === 'number' ? `${w.range} m` : 'Melee'}</td>
+                    <td className="mono nowrap">{rangeLabel(w.range)}</td>
                     <td className="mono">{w.damage || '—'}</td>
                     <td className="small dim">{w.traits?.join(', ')}</td>
                     <td className="num">{w.cost !== undefined ? `Cr${w.cost.toLocaleString('en-GB')}` : '—'}</td>
@@ -255,15 +278,18 @@ function WeaponPicker({ c, onClose }: { c: Character; onClose: () => void }) {
 
 function ArmourPicker({ c, onClose }: { c: Character; onClose: () => void }) {
   const gear = useRules().gear;
+  const [q, setQ] = useState('');
   const [custom, setCustom] = useState({ name: '', protection: '' });
+  const list = useMemo(() => (gear?.armour ?? []).filter((a) => !q.trim() || `${a.name} ${a.group ?? ''}`.toLowerCase().includes(q.trim().toLowerCase())).sort((a, b) => a.name.localeCompare(b.name) || a.tl - b.tl), [gear, q]);
   const add = async (a: CharacterArmour) => {
     await patch(c.id, [{ op: 'push', path: ['armour'], value: a }]);
     toast(`${a.name} added`, 'ok');
   };
-  const fromDef = (d: ArmourDef): CharacterArmour => ({ id: newId('arm'), defId: d.id, name: `${d.name} (TL${d.tl})`, protection: d.protection, laserProtection: d.laserProtection, rad: d.rad, kg: d.kg, worn: (c.armour ?? []).every((x) => !x.worn), note: d.note });
+  const fromDef = (d: ArmourDef): CharacterArmour => ({ id: newId('arm'), ...armourFromDef(d), worn: (c.armour ?? []).every((x) => !x.worn) });
   return (
     <Modal title="Add armour" icon="shield" size="wide" onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Done</button>}>
       <div className="col gap-12">
+        {gear && gear.armour.length > 12 && <input className="input" autoFocus placeholder="Search armour…" value={q} onChange={(e) => setQ(e.target.value)} />}
         {gear && (
           <div className="scroll" style={{ maxHeight: 340, border: '1px solid var(--line)' }}>
             <table className="table">
@@ -280,13 +306,18 @@ function ArmourPicker({ c, onClose }: { c: Character; onClose: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {gear.armour.map((a) => (
+                {list.map((a) => (
                   <tr key={a.id}>
-                    <td>{a.name}</td>
+                    <td title={a.note}>
+                      {a.name}
+                      {(a.str || a.dex || a.slots) && (
+                        <div className="tiny faint">{[a.str ? `STR ${a.str > 0 ? '+' : ''}${a.str}` : '', a.dex ? `DEX ${a.dex > 0 ? '+' : ''}${a.dex}` : '', a.slots ? `${a.slots} slots` : ''].filter(Boolean).join(' · ')}</div>
+                      )}
+                    </td>
                     <td className="mono">{a.tl}</td>
                     <td className="mono">
                       +{a.protection}
-                      {a.laserProtection !== undefined ? ` (+${a.laserProtection} vs lasers)` : ''}
+                      {a.versus ? ` (${a.versus})` : a.laserProtection !== undefined ? ` (+${a.laserProtection} vs lasers)` : ''}
                     </td>
                     <td className="mono">{a.rad ?? '—'}</td>
                     <td className="mono">{a.kg}</td>
@@ -558,10 +589,13 @@ export function Sheet({ c }: { c: Character }) {
             </div>
             <div className="col gap-4">
               {(c.armour ?? []).map((a) => (
-                <div key={a.id} className="gear-row" title={a.note}>
+                <div key={a.id} className="gear-row" title={[a.versus, a.note].filter(Boolean).join('\n') || undefined}>
                   <label className="check grow">
                     <input type="checkbox" checked={a.worn} disabled={!canEdit} onChange={(e) => void patch(c.id, [{ op: 'set', path: ['armour', a.id, 'worn'], value: e.target.checked }])} />
-                    {a.name}
+                    <span>
+                      {a.name}
+                      {armourLine(a, c) && <span className="tiny faint"> · {armourLine(a, c)}</span>}
+                    </span>
                   </label>
                   <span className="mono small">
                     +{a.protection}
@@ -693,17 +727,42 @@ export function Sheet({ c }: { c: Character }) {
                     </button>
                   )}
                 </div>
-                {(c.weapons ?? []).map((w) => {
+                {(c.weapons ?? []).map((carried) => {
+                  const w = loadedWeapon(carried, pack.gear);
                   const lvl = skillLevel(c.skills, w.skill);
+                  const loads = ammoFor(pack.gear, carried);
                   return (
                     <div key={w.id} className="weapon-row">
                       <div className="grow">
                         <strong>{w.name}</strong>
                         <div className="small dim">
-                          {w.skill} {lvl === null ? '(unskilled)' : lvl} · <span className="mono">{w.damage || 'no damage'}</span> · {typeof w.range === 'number' ? `${w.range} m` : 'melee'}
+                          {w.skill} {lvl === null ? '(unskilled)' : lvl} · <span className="mono">{w.damage || 'no damage'}</span> · {rangeLabel(w.range).toLowerCase()}
                           {w.traits?.length ? ` · ${w.traits.join(', ')}` : ''}
                         </div>
                         {w.note && <div className="tiny faint">{w.note}</div>}
+                        {(loads.length > 0 || carried.load) && (
+                          <label className="row gap-4 tiny dim" style={{ marginTop: 2 }}>
+                            Loaded with
+                            <select
+                              className="select sm"
+                              disabled={!canEdit}
+                              value={carried.load?.id ?? ''}
+                              onChange={(e) => {
+                                const pick = loads.find((l) => l.id === e.target.value);
+                                void patch(c.id, [pick ? { op: 'set', path: ['weapons', carried.id, 'load'], value: { id: pick.id, name: pick.name } } : { op: 'del', path: ['weapons', carried.id, 'load'] }]);
+                              }}
+                            >
+                              <option value="">standard rounds</option>
+                              {carried.load && !loads.some((l) => l.id === carried.load!.id) && <option value={carried.load.id}>{carried.load.name}</option>}
+                              {loads.map((l) => (
+                                <option key={l.id} value={l.id} title={l.effect}>
+                                  {l.name}
+                                  {l.ammo ? ` (×${l.ammo.costMult} cost)` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
                       </div>
                       {typeof w.ammo === 'number' && (
                         <button className={cx('chip mono', w.ammo === 0 && 'danger')} disabled={!canEdit} onClick={() => void run('character.reload', { id: c.id, weaponId: w.id })} title="Click to reload (a minor action)">
@@ -711,7 +770,7 @@ export function Sheet({ c }: { c: Character }) {
                         </button>
                       )}
                       {canEdit && (
-                        <button className="btn primary sm" onClick={() => setAttack(w)}>
+                        <button className="btn primary sm" onClick={() => setAttack(carried)}>
                           <Icon name="crosshair" size={12} /> Attack
                         </button>
                       )}

@@ -7,13 +7,14 @@ import { contentsVisible, type Viewer } from '../../../shared/knowledge';
 import { carryLimit } from '../../../shared/rules/character';
 import type { Character, Entity, Id, Item, ItemCategory, Ship, Stash } from '../../../shared/types';
 import { formatCredits } from '../../../shared/util';
-import { act, run } from '../../net';
+import { run } from '../../net';
 import { setQuery, useRoute } from '../../router';
-import { toast, useIsGm, useMe, useRules, useType } from '../../store';
+import { useIsGm, useMe, useType } from '../../store';
 import { ConfirmButton, cx, Empty, Field, Modal, Segmented } from '../../ui/basics';
 import { Icon, type IconName } from '../../ui/Icon';
 import { KnowledgeBadge, KnowledgeControl } from '../../ui/Knowledge';
 import { characterName } from '../characters/Sheet';
+import { CatalogueDialog } from './Catalogue';
 
 type Holder = Character | Ship | Stash;
 
@@ -62,143 +63,6 @@ export function Meter({ value, max, unit, warnAt = 1 }: { value: number; max: nu
         {Math.round(value * 10) / 10} / {max} {unit}
       </span>
     </div>
-  );
-}
-
-function AddItem({ holder, onClose }: { holder: Holder; onClose: () => void }) {
-  const gear = useRules().gear;
-  const [mode, setMode] = useState<'custom' | 'weapon' | 'armour'>('custom');
-  const [form, setForm] = useState({ name: '', category: (holder.type === 'ship' ? 'gear' : 'gear') as ItemCategory, qty: '1', kg: '', value: '', tons: '1', note: '' });
-  const [q, setQ] = useState('');
-  const [equip, setEquip] = useState(holder.type === 'character');
-  const create = async (payload: Record<string, unknown>, label: string) => {
-    try {
-      await act('item.create', { holderId: holder.id, ...payload });
-      toast(`${label} added to ${holderName(holder)}`, 'ok');
-    } catch (err) {
-      toast((err as Error).message, 'error');
-    }
-  };
-  const list = mode === 'weapon' ? (gear?.weapons ?? []) : mode === 'armour' ? (gear?.armour ?? []) : [];
-  const shown = list.filter((d) => !q.trim() || d.name.toLowerCase().includes(q.trim().toLowerCase()));
-  return (
-    <Modal title={`Add to ${holderName(holder)}`} icon="plus" size="wide" onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Done</button>}>
-      <div className="col gap-12">
-        <Segmented
-          value={mode}
-          onChange={setMode}
-          options={[
-            { id: 'custom', label: 'Any item' },
-            { id: 'weapon', label: 'Weapon catalogue' },
-            { id: 'armour', label: 'Armour catalogue' },
-          ]}
-        />
-        {mode === 'custom' ? (
-          <div className="col gap-12">
-            <div className="grid-2">
-              <Field label="Name">
-                <input className="input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              </Field>
-              <Field label="Kind">
-                <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as ItemCategory })}>
-                  {(Object.keys(CATEGORY_LABEL) as ItemCategory[]).map((c) => (
-                    <option key={c} value={c}>
-                      {CATEGORY_LABEL[c]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <div className="grid-3">
-              <Field label="Quantity">
-                <input className="input mono" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value.replace(/\D/g, '') })} />
-              </Field>
-              {form.category === 'cargo' ? (
-                <Field label="Tons (each lot)">
-                  <input className="input mono" value={form.tons} onChange={(e) => setForm({ ...form, tons: e.target.value.replace(/[^\d.]/g, '') })} />
-                </Field>
-              ) : (
-                <Field label="Mass each (kg)">
-                  <input className="input mono" value={form.kg} onChange={(e) => setForm({ ...form, kg: e.target.value.replace(/[^\d.]/g, '') })} />
-                </Field>
-              )}
-              <Field label={form.category === 'cargo' ? 'Value per ton (Cr)' : 'Value each (Cr)'}>
-                <input className="input mono" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value.replace(/[^\d.]/g, '') })} />
-              </Field>
-            </div>
-            <Field label="Notes">
-              <input className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-            </Field>
-            <div>
-              <button
-                className="btn primary"
-                disabled={!form.name.trim()}
-                onClick={() =>
-                  void create(
-                    {
-                      name: form.name.trim(),
-                      category: form.category,
-                      qty: Number(form.qty) || 1,
-                      kg: form.kg ? Number(form.kg) : undefined,
-                      value: form.value ? Number(form.value) : undefined,
-                      tons: form.category === 'cargo' ? Number(form.tons) || 1 : undefined,
-                      note: form.note.trim() || undefined,
-                    },
-                    form.name.trim(),
-                  ).then(() => setForm({ ...form, name: '', note: '' }))
-                }
-              >
-                <Icon name="plus" size={13} /> Add item
-              </button>
-            </div>
-          </div>
-        ) : !gear ? (
-          <div className="notice warn">No equipment catalogue is installed on the server.</div>
-        ) : (
-          <div className="col">
-            <div className="row">
-              <input className="input" autoFocus placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
-              {holder.type === 'character' && (
-                <label className="check small nowrap">
-                  <input type="checkbox" checked={equip} onChange={(e) => setEquip(e.target.checked)} />
-                  Also put it on the character sheet
-                </label>
-              )}
-            </div>
-            <div className="scroll" style={{ maxHeight: 380, border: '1px solid var(--line)' }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>TL</th>
-                    <th>{mode === 'weapon' ? 'Damage' : 'Protection'}</th>
-                    <th className="num">Kg</th>
-                    <th className="num">Cost</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((d) => (
-                    <tr key={d.id}>
-                      <td>{d.name}</td>
-                      <td className="mono">{d.tl ?? '—'}</td>
-                      <td className="mono">{'damage' in d ? d.damage || '—' : `+${d.protection}`}</td>
-                      <td className="num">{d.kg ?? '—'}</td>
-                      <td className="num">{d.cost !== undefined ? `Cr${d.cost.toLocaleString('en-GB')}` : '—'}</td>
-                      <td>
-                        <button className="btn sm" onClick={() => void create({ defKind: mode, defId: d.id, equip }, d.name)}>
-                          <Icon name="plus" size={12} /> Add
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    </Modal>
   );
 }
 
@@ -526,7 +390,7 @@ export function InventoryPage() {
         )}
       </div>
 
-      {dialog === 'add' && selected && <AddItem holder={selected} onClose={() => setDialog(null)} />}
+      {dialog === 'add' && selected && <CatalogueDialog holder={selected} holderName={holderName(selected)} onClose={() => setDialog(null)} />}
       {dialog === 'ship' && <NewShip onClose={() => setDialog(null)} />}
       {dialog === 'stash' && (
         <Modal

@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
 import { attackDm, checkDm, defaultChar, isMelee, parseDamage, traitValue } from '../../../shared/rules/character';
+import { loadedWeapon } from '../../../shared/rules/gear';
 import type { CharKey, Character, CharacterWeapon, Id, Roll } from '../../../shared/types';
 import { act } from '../../net';
 import { toast, useApp, useEntity, useIsGm, useRules } from '../../store';
@@ -82,6 +83,9 @@ export interface CheckRequest {
   label?: string;
   /** Let the roller name any skill, including ones not on the sheet. */
   chooseSkill?: boolean;
+  /** A situational modifier and a target to start from. */
+  dm?: number;
+  target?: number;
 }
 
 /** Rolls a check straight away with the usual characteristic at Average difficulty. */
@@ -104,8 +108,8 @@ export function CheckDialog({ request, onClose }: { request: CheckRequest; onClo
   const [skillText, setSkillText] = useState(request.skill ?? '');
   const skill = request.chooseSkill ? skillText.trim() || undefined : request.skill;
   const [char, setChar] = useState<CharKey | undefined>(request.char ?? (request.skill ? defaultChar(request.skill, pack) : undefined));
-  const [target, setTarget] = useState(pack.tasks?.defaultTarget ?? 8);
-  const [extra, setExtra] = useState(0);
+  const [target, setTarget] = useState(request.target ?? pack.tasks?.defaultTarget ?? 8);
+  const [extra, setExtra] = useState(request.dm ?? 0);
   const [mode, setMode] = useState<'normal' | 'boon' | 'bane'>('normal');
   const [secret, setSecret] = useState(false);
   const [manual, setManual] = useState('');
@@ -257,8 +261,10 @@ export function CheckDialog({ request, onClose }: { request: CheckRequest; onClo
 }
 
 /** Attack with a weapon: choose range and situation, roll to hit, then roll damage on a hit. */
-export function AttackDialog({ character, weapon, onClose }: { character: Character; weapon: CharacterWeapon; onClose: () => void }) {
+export function AttackDialog({ character, weapon: carried, onClose }: { character: Character; weapon: CharacterWeapon; onClose: () => void }) {
   const pack = useRules();
+  // special ammunition changes the weapon's damage, range and traits
+  const weapon = useMemo(() => loadedWeapon(carried, pack.gear), [carried, pack.gear]);
   const gm = useIsGm();
   const prefs = useRollPrefs();
   const combat = pack.combat;
@@ -324,7 +330,7 @@ export function AttackDialog({ character, weapon, onClose }: { character: Charac
 
   return (
     <Modal
-      title={`Attack with ${weapon.name}`}
+      title={`Attack with ${weapon.name}${weapon.load ? ` (${weapon.load.name})` : ''}`}
       icon="crosshair"
       size="wide"
       onClose={onClose}
@@ -408,7 +414,7 @@ export function AttackDialog({ character, weapon, onClose }: { character: Charac
             ) : (
               <Field
                 label="Range"
-                hint={typeof weapon.range === 'number' && combat ? `Short to ${Math.floor(weapon.range * combat.range.shortFraction)} m · normal to ${weapon.range} m · long to ${weapon.range * combat.range.longMultiple} m · extreme to ${weapon.range * combat.range.extremeMultiple} m. Beyond ${combat.range.unscopedExtremeBeyond} m counts as extreme without an aimed scope.` : undefined}
+                hint={typeof weapon.range === 'number' && weapon.range > 0 && combat ? `Short to ${Math.floor(weapon.range * combat.range.shortFraction)} m · normal to ${weapon.range} m · long to ${weapon.range * combat.range.longMultiple} m · extreme to ${weapon.range * combat.range.extremeMultiple} m. Beyond ${combat.range.unscopedExtremeBeyond} m counts as extreme without an aimed scope.` : undefined}
               >
                 <Segmented value={band} onChange={setBand} options={(combat?.range.bands ?? [{ id: 'normal', name: 'Normal', dm: 0 }]).map((b) => ({ id: b.id, label: `${b.name}${b.dm ? ` ${fmt(b.dm)}` : ''}` }))} />
               </Field>
@@ -474,7 +480,7 @@ export function AttackDialog({ character, weapon, onClose }: { character: Charac
             <div className="weapon-card">
               <strong>{weapon.name}</strong>
               <div className="small dim">
-                {weapon.skill} · {weapon.damage || 'no damage'} · {typeof weapon.range === 'number' ? `${weapon.range} m` : 'melee'}
+                {weapon.skill} · {weapon.damage || 'no damage'} · {weapon.range === 'melee' ? 'melee' : weapon.range === 0 ? 'no range' : `${weapon.range} m`}
               </div>
               {weapon.traits && weapon.traits.length > 0 && (
                 <div className="row wrap gap-4" style={{ marginTop: 6 }}>

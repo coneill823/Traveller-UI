@@ -8,6 +8,9 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
 }
 
+/** Dialogs currently open, bottom to top. */
+const openModals: object[] = [];
+
 export function Modal({
   title,
   icon,
@@ -24,19 +27,27 @@ export function Modal({
   size?: 'wide' | 'xwide';
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
+    // With one dialog open over another, Escape closes only the one on top.
+    const token = {};
+    openModals.push(token);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && openModals[openModals.length - 1] === token) {
         e.stopPropagation();
-        onClose();
+        close.current();
       }
     };
     window.addEventListener('keydown', onKey, true);
     // Move focus into the dialog so keyboard users start in the right place.
     const first = ref.current?.querySelector<HTMLElement>('[autofocus], input, textarea, select, button.primary');
     first?.focus();
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      openModals.splice(openModals.indexOf(token), 1);
+    };
+  }, []);
   return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={cx('modal', size)} role="dialog" aria-modal="true" ref={ref}>
