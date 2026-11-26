@@ -2,10 +2,11 @@
 import { SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, formatHex, parseHex, subsectorOf, subsectorOrigin, toGlobal } from '../../shared/hex';
 import { PRESETS } from '../../shared/knowledge';
 import { generateNames } from '../../shared/names';
+import { generateSystem, likelyMainworld, starsLabel, type KnownSystem, type SystemLayout } from '../../shared/rules/system';
 import { generateArea, generateWorld, suggestTradeRoutes, systemTradeCodes } from '../../shared/rules/world';
 import type { ParsedWorld } from '../../shared/sectorFormats';
-import type { Body, BodyKind, Campaign, Id, RouteKind, Sector, StarSystem, TravelZone } from '../../shared/types';
-import { isValidUwp, parsePbg, parseUwp } from '../../shared/uwp';
+import type { Body, BodyData, BodyKind, Campaign, Id, RouteKind, Sector, StarSystem, TravelZone } from '../../shared/types';
+import { formatPbg, isValidUwp, parsePbg, parseUwp } from '../../shared/uwp';
 import { hashString, seededRng } from '../../shared/util';
 import type { Tx } from '../state';
 import { applyPreset, CAMPAIGN_ID, cascadeDelete, checkAudience } from './core';
@@ -182,6 +183,8 @@ action('system.regenerate', (ctx, p) => {
     s.stars = world.stars;
     delete s.remarks;
     delete s.ext;
+    delete s.survey;
+    if (world.worlds !== undefined) s.ext = { worlds: String(world.worlds) };
   });
   rebuildBodies(ctx.tx, system.id);
 });
@@ -214,7 +217,124 @@ function rebuildBodies(tx: Tx, systemId: Id): void {
 
 action('system.rebuildBodies', (ctx, p) => {
   requireGm(ctx.me);
-  rebuildBodies(ctx.tx, check.id(p.id, 'id'));
+  const id = check.id(p.id, 'id');
+  rebuildBodies(ctx.tx, id);
+  ctx.tx.update<StarSystem>(id, (s) => void delete s.survey);
+});
+
+/** What a system's listing already settles, for a detailed survey to build around. */
+export function knownFromListing(system: StarSystem): KnownSystem {
+  const known: KnownSystem = {};
+  const stars = splitStars(system.stars);
+  if (stars.length) known.stars = stars;
+  const pbg = parsePbg(system.pbg);
+  if (pbg) {
+    known.gasGiants = pbg.gasGiants;
+    known.belts = pbg.belts;
+  }
+  const uwp = parseUwp(system.uwp);
+  if (uwp && uwp.size >= 0 && uwp.atm >= 0) {
+    // climate, where the remarks carry one of the survey's codes for it
+    const codes = (system.remarks ?? '').split(/\s+/);
+    const temperature = codes.includes('Fr') ? 'frozen' : codes.includes('Co') || codes.includes('Tu') ? 'cold' : codes.includes('Ho') || codes.includes('Tr') ? 'hot' : undefined;
+    known.mainworld = { size: uwp.size, atm: uwp.atm, temperature };
+  }
+  const worlds = /^\d+$/.test(system.ext?.worlds ?? '') ? Number(system.ext!.worlds) : undefined;
+  if (worlds !== undefined && pbg && worlds >= pbg.gasGiants + pbg.belts + 1) known.worlds = worlds;
+  return known;
+}
+
+const GIANT_NAMES: Record<string, string> = { GS: 'Small gas giant', GM: 'Medium gas giant', GL: 'Large gas giant' };
+
+/**
+ * Replaces a system's survey bodies with the stars, worlds and moons of a detailed survey. The
+ * mainworld keeps its record (and with it what is known of it, its notes, and anything placed on it);
+ * the referee's own additions are kept.
+ */
+export function applyLayout(tx: Tx, system: StarSystem, layout: SystemLayout): void {
+  const old = tx.where('body', 'systemId', system.id).filter((b) => b.origin === 'survey');
+  const oldMain = old.find((b) => b.mainworld);
+  // What the players already knew of the stars, giants and belts on the chart carries over to the new
+  // ones; planets and moons the chart never showed stay hidden until the referee reveals them.
+  const knownOf = (kind: BodyKind) => old.find((b) => b.kind === kind && !b.mainworld && !b.parentId)?.known;
+  const carried = { star: knownOf('star'), gasGiant: knownOf('gasGiant'), belt: knownOf('belt') } as Partial<Record<BodyKind, Body['known']>>;
+  for (const body of old) if (body.id !== oldMain?.id) tx.delete(body.id);
+  const prefix = system.name ? `${system.name} ` : '';
+  const figure = (n: number, digits = 3) => Number(n.toPrecision(digits));
+
+  layout.stars.forEach((star, i) => {
+    const data: BodyData = { designation: star.designation, role: star.role, solarMass: star.mass, solarDiameter: figure(star.diameter), luminosity: figure(star.luminosity), temperature: star.temperature };
+    if (star.orbit !== undefined) Object.assign(data, { orbitNo: star.orbit, au: star.au, ecc: star.ecc, period: figure(star.period ?? 0, 4) });
+    tx.create('body', { systemId: system.id, kind: 'star', orbit: i * 0.1, origin: 'survey', subtype: star.label, name: system.name ? `${prefix}${layout.stars.length > 1 ? star.designation : 'Primary'}` : undefined, data, known: carried.star });
+  });
+
+  let mainSeen = false;
+  for (const world of layout.worlds) {
+    const kind: BodyKind = world.kind === 'gasGiant' ? 'gasGiant' : world.kind === 'belt' ? 'belt' : 'planet';
+    const small = world.moons.filter((m) => m.size === 'S').length;
+    const data: BodyData = { designation: world.designation, around: world.around, orbitNo: world.orbit, au: world.au, ecc: world.ecc || undefined, period: figure(world.period, 4), size: world.size, hz: world.hzDeviation, zone: world.zone };
+    if (world.giant) Object.assign(data, { diameter: world.giant.diameter, mass: world.giant.mass });
+    if (world.anomaly) data.anomaly = world.anomaly;
+    if (world.inclination !== undefined) data.inclination = world.inclination;
+    if (world.rings) data.rings = world.rings;
+    if (small) data.smallMoons = small;
+    // worlds of the further stars are listed after those of the primary
+    const orbit = world.group * 100 + world.orbit;
+    const subtype = world.giant ? GIANT_NAMES[world.giant.code] : undefined;
+    let id: Id;
+    if (world.mainworld && oldMain && !mainSeen) {
+      mainSeen = true;
+      id = oldMain.id;
+      tx.update<Body>(id, (b) => {
+        b.kind = kind;
+        b.orbit = orbit;
+        b.data = data;
+        delete b.parentId;
+      });
+    } else {
+      id = tx.create('body', { systemId: system.id, kind, orbit, origin: 'survey', mainworld: world.mainworld || undefined, name: world.mainworld ? system.name : system.name ? `${prefix}${world.designation}` : undefined, subtype, data, known: carried[kind] }).id;
+      if (world.mainworld) mainSeen = true;
+    }
+    const parentName = world.mainworld ? system.name : system.name ? `${prefix}${world.designation}` : undefined;
+    world.moons
+      .filter((m) => m.size !== 'S')
+      .forEach((moon, n) => {
+        const letter = String.fromCharCode(97 + n);
+        const moonData: BodyData = { designation: `${world.designation} ${letter}`, size: moon.size, zone: world.zone, hz: world.hzDeviation };
+        if (moon.giant) Object.assign(moonData, { diameter: moon.giant.diameter, mass: moon.giant.mass });
+        tx.create('body', { systemId: system.id, parentId: id, kind: 'moon', orbit: n + 1, origin: 'survey', name: parentName ? `${parentName} ${letter}` : undefined, subtype: moon.giant ? GIANT_NAMES[moon.giant.code] : undefined, data: moonData });
+      });
+  }
+  // a mainworld the survey could not place (no stable orbit at all) is left as it was
+  if (oldMain && !mainSeen) tx.update<Body>(oldMain.id, (b) => void (b.data = undefined));
+  // anything the referee had put on a body that is gone now belongs to the system at large
+  for (const child of tx.where('body', 'systemId', system.id)) if (child.parentId && !tx.get(child.parentId)) tx.update<Body>(child.id, (b) => void delete b.parentId);
+
+  tx.update<StarSystem>(system.id, (s) => {
+    s.survey = { age: layout.age, profile: layout.profile };
+    if (!s.stars) s.stars = starsLabel(layout.stars);
+    if (!s.pbg && layout.worlds.length) s.pbg = formatPbg({ popMultiplier: 0, belts: Math.min(9, layout.belts), gasGiants: Math.min(9, layout.gasGiants) });
+    if (layout.notes.length) s.gm = { ...(s.gm ?? {}), surveyNotes: layout.notes.join(' ') };
+    else if (s.gm?.surveyNotes !== undefined) delete (s.gm as Record<string, unknown>).surveyNotes;
+  });
+}
+
+action('system.detail', (ctx, p) => {
+  requireGm(ctx.me);
+  const system = ctx.tx.need('system', check.id(p.id, 'id'));
+  const rules = worldRules(ctx).system;
+  if (!rules) throw new ActionError('The installed rules have no tables for surveying a whole system');
+  const seed = p.seed === undefined ? Math.floor(Math.random() * 2 ** 31) : check.int(p.seed, 'seed', { min: 0 });
+  const known = knownFromListing(system);
+  const layout = generateSystem(rules, seededRng(seed), known);
+  // with no mainworld listed, the likeliest world of the survey takes its place
+  if (!known.mainworld) {
+    const pick = likelyMainworld(layout);
+    if (pick) pick.mainworld = true;
+    else if (layout.worlds.length) layout.notes.push('No rocky world or belt here suits a mainworld; it is left off the survey for you to place.');
+  }
+  applyLayout(ctx.tx, system, layout);
+  return { seed, stars: layout.stars.length, worlds: layout.worlds.length, moons: layout.worlds.reduce((n, w) => n + w.moons.length, 0) };
 });
 
 // ── bodies ──
@@ -477,7 +597,7 @@ action('map.generate', (ctx, p) => {
     const { col0, row0 } = subsectorOrigin(letter);
     const generated = generateArea(rules, rng, { density, col0, row0, skip: occupied, autoAmber: p.autoAmber !== false });
     const names = generateNames(generated.length, rng, nameStyle, taken);
-    generated.forEach((g, i) => worlds.push({ hex: g.hex, name: names[i], uwp: g.uwp, bases: g.bases || undefined, pbg: g.pbg, zone: g.zone, stars: g.stars }));
+    generated.forEach((g, i) => worlds.push({ hex: g.hex, name: names[i], uwp: g.uwp, bases: g.bases || undefined, pbg: g.pbg, zone: g.zone, stars: g.stars, worlds: g.worlds === undefined ? undefined : String(g.worlds) }));
   }
   const summary = importWorlds(ctx.tx, sector, worlds, { mode: 'skip' });
   if (p.reveal) {

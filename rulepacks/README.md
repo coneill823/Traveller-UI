@@ -22,7 +22,7 @@ belong somewhere private: either drop pack folders in here on the machine that r
 
 | File | Section | Used for |
 | --- | --- | --- |
-| `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation |
+| `world.json` | `world` | World profile digits, starports, bases, trade codes, world and star generation; under `system`, the tables for building a whole star system |
 | `tasks.json` | `tasks` | Difficulties, effect bands, characteristic modifiers |
 | `characters.json` | `characters` | Characteristics, skills and specialities, species, careers |
 | `gear.json` | `gear` | Personal weapons, armour and weapon traits; other equipment, special ammunition, and the rules for finding and buying things |
@@ -33,6 +33,29 @@ belong somewhere private: either drop pack folders in here on the machine that r
 
 The exact shape of every section is documented by the TypeScript types in
 `src/shared/rulepack.ts`. A section that is missing simply switches off the features that need it.
+
+## Star systems and formulas
+
+`world.json` may carry a `system` object with what is needed to build a star system in detail: the
+distance of each orbit number, star tables by type and class, the columns the dice are read
+against, the modifiers that apply to each roll (`dm`) and a set of named figures and formulas
+(`f`). The procedure is in `src/shared/rules/system.ts`, which holds no figures of its own; its
+header lists the names a formula can use, and it says which name is missing if a pack leaves one
+out. `tests/fixtures/systemRules.ts` is a complete, made-up example.
+
+Formulas and conditions are written as text, so a pack states how a figure is worked out rather
+than only listing values:
+
+| Written | Means |
+| --- | --- |
+| `2D`, `1D`, `D3`, `d10`, `3D6` | dice; a lone `D` is one six-sided die |
+| `+ - * / ^`, and `x` or `×` for multiplying | arithmetic |
+| `min max floor ceil round abs sqrt ln pow` | functions, as in `max(1, N)` |
+| `< <= > >= == !=`, `and`, `or`, `not` | conditions, which give 1 or 0 |
+| any other name | a value the engine supplies, such as `stars` or `age`; names may contain dots |
+
+A modifier row reads `{ "when": "stars >= 3", "dm": -1 }`, with an optional `"times"` formula for
+modifiers that count once per something. Because a lone `D` is a die, no value is called `D`.
 
 ## Adding equipment
 

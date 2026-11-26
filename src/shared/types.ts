@@ -120,6 +120,40 @@ export interface StarSystem extends EntityBase {
   stars?: string;
   /** Extended Second Survey fields kept verbatim so imports round-trip. */
   ext?: { ix?: string; ex?: string; cx?: string; nobility?: string; worlds?: string; ru?: string };
+  /** What a detailed survey of the whole system found. */
+  survey?: { /** Age in billions of years. */ age: number; /** Giants-belts-terrestrials-baseline-spread. */ profile: string };
+}
+
+/** Figures a detailed survey records for a star, world or moon. Everything is optional. */
+export interface BodyData {
+  /** Survey designation: "Aab IV", "B I", "PI". */
+  designation?: string;
+  /** Which stars it circles: "A", "Aab", "AB". */
+  around?: string;
+  /** Orbit number, distance in AU, eccentricity, and period in years. */
+  orbitNo?: number;
+  au?: number;
+  ecc?: number;
+  period?: number;
+  /** Size code ("7", "A", "S", "GM9"); for gas giants also diameter and mass in Earths. */
+  size?: string;
+  diameter?: number;
+  mass?: number;
+  /** Distance from the centre of the habitable zone in orbit numbers (negative is hotter), and what that suggests. */
+  hz?: number;
+  zone?: string;
+  /** An orbit out of the ordinary: retrograde, inclined (with the angle), eccentric, trojan, random. */
+  anomaly?: string;
+  inclination?: number;
+  rings?: number;
+  /** Moons too small to list one by one. */
+  smallMoons?: number;
+  /** Stars: place in the system, and mass, diameter, luminosity in Suns, surface temperature in kelvin. */
+  role?: string;
+  solarMass?: number;
+  solarDiameter?: number;
+  luminosity?: number;
+  temperature?: number;
 }
 
 export type BodyKind = 'star' | 'planet' | 'gasGiant' | 'belt' | 'moon' | 'station' | 'poi';
@@ -142,6 +176,8 @@ export interface Body extends EntityBase {
   subtype?: string;
   /** Short public description. */
   summary?: string;
+  /** Figures from a detailed survey. */
+  data?: BodyData;
   /**
    * 'survey' bodies are what any star chart would list (stars, mainworld, gas giants, belts) and
    * are revealed along with the system's survey data. 'custom' ones are revealed individually.

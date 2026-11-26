@@ -179,6 +179,20 @@ export function SystemPanel({ info }: { info: SysInfo }) {
                 <dd className="mono">{sys.stars}</dd>
               </>
             )}
+            {sys.survey && (
+              <>
+                <dt>Age</dt>
+                <dd>{sys.survey.age >= 1 ? `${sys.survey.age.toPrecision(3)} billion years` : `${Math.round(sys.survey.age * 1000)} million years`}</dd>
+                <dt title="Gas giants, belts, terrestrial planets, the world nearest the habitable zone's centre, and the spacing of orbits">Survey profile</dt>
+                <dd className="mono">{sys.survey.profile}</dd>
+              </>
+            )}
+            {gm && typeof sys.gm?.surveyNotes === 'string' && (
+              <>
+                <dt style={{ color: 'var(--gm)' }}>Survey notes</dt>
+                <dd className="small">{sys.gm.surveyNotes}</dd>
+              </>
+            )}
             {sys.allegiance && (
               <>
                 <dt>Allegiance</dt>
@@ -202,7 +216,7 @@ export function SystemPanel({ info }: { info: SysInfo }) {
           <h3>Who knows what</h3>
           <KnowledgeControl entity={sys} />
           <div className="tiny faint" style={{ marginTop: 6 }}>
-            Charting also reveals the stars, mainworld, gas giants and belts. Points of interest you add are revealed one by one in the system view.
+            Charting also reveals the stars, mainworld, gas giants and belts. Points of interest you add are revealed one by one in the system view{sys.survey ? ', and so are the other worlds and moons of the detailed survey (or all at once with “Share the full survey” there)' : ''}.
           </div>
         </div>
       )}

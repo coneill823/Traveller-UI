@@ -5,6 +5,7 @@
 import { SUB_H, SUB_W, formatHex, hexDistance, type GlobalHex } from '../hex';
 import type { DiceFormula, DigitRule, RangeDm, TradeCodeDef, WorldRules } from '../rulepack';
 import { ehexChar, formatPbg, formatUwp, parsePbg, parseUwp, type Uwp } from '../uwp';
+import { rollListing } from './system';
 import { rollDice, sum, type Rng } from '../util';
 
 export function matchesDigit(rule: DigitRule | undefined, value: number): boolean {
@@ -155,6 +156,8 @@ export interface GeneratedWorld {
   stars: string;
   temperature?: string;
   tradeCodes: string[];
+  /** Total worlds in the system (mainworld, giants, belts and the rest), where the rules work it out. */
+  worlds?: number;
 }
 
 /**
@@ -233,12 +236,26 @@ export function generateWorld(rules: WorldRules, rng: Rng, opts: GenerateOptions
     if (sum(rollDice(2, rng)) + dm >= target) bases += code;
   }
 
-  // Population multiplier, belts and gas giants. The belt and giant counts are this app's own
-  // simple convention (the pack only says whether a gas giant is present).
-  const gasGiantPresent = sum(rollDice(2, rng)) < g.gasGiantAbsentOn;
-  const gasGiants = gasGiantPresent ? Math.max(1, rollDice(1, rng)[0] - 2) : 0;
-  const belts = Math.max(0, rollDice(1, rng)[0] - 3);
+  // Population multiplier, belts and gas giants. With rules for whole systems in the pack, the
+  // stars and the counts of giants, belts and other worlds come from those; otherwise they follow
+  // this app's own simple convention (the core tables only say whether a gas giant is present).
   const popMultiplier = v.pop === 0 ? 0 : 1 + Math.floor(rng() * 9);
+  let gasGiants: number;
+  let belts: number;
+  let stars: string;
+  let worlds: number | undefined;
+  if (rules.system) {
+    const listing = rollListing(rules.system, rng, { size: v.size, atm: v.atm });
+    gasGiants = Math.min(9, listing.gasGiants);
+    belts = Math.min(9, listing.belts);
+    stars = listing.stars;
+    worlds = listing.worlds;
+  } else {
+    const gasGiantPresent = sum(rollDice(2, rng)) < g.gasGiantAbsentOn;
+    gasGiants = gasGiantPresent ? Math.max(1, rollDice(1, rng)[0] - 2) : 0;
+    belts = Math.max(0, rollDice(1, rng)[0] - 3);
+    stars = generateStars(rng);
+  }
 
   const amber =
     opts.autoAmber !== false &&
@@ -251,9 +268,10 @@ export function generateWorld(rules: WorldRules, rng: Rng, opts: GenerateOptions
     bases,
     pbg: formatPbg({ popMultiplier, belts, gasGiants }),
     zone: amber ? 'A' : '',
-    stars: generateStars(rng),
+    stars,
     temperature: temperature?.name,
     tradeCodes: tradeCodesFor(uwp, rules),
+    worlds,
   };
 }
 

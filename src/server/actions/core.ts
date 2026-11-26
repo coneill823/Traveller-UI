@@ -254,6 +254,9 @@ function revealAncestors(tx: Tx, entity: Entity, audience: Audience): void {
   }
 }
 
+/** The bodies a star chart lists for a system. */
+const onCharts = (body: Body): boolean => !!body.mainworld || (!body.parentId && (body.kind === 'star' || body.kind === 'gasGiant' || body.kind === 'belt'));
+
 export function applyPreset(tx: Tx, id: Id, presetKey: string, audience: Audience): void {
   const preset = PRESETS[presetKey];
   if (!preset) throw new ActionError(`Unknown knowledge level "${presetKey}"`);
@@ -273,11 +276,12 @@ export function applyPreset(tx: Tx, id: Id, presetKey: string, audience: Audienc
     }
   }
   if (on.length) revealOne(tx, id, on, audience, true);
-  // Charting a system also reveals the bodies any survey would list; hiding it hides them all.
+  // Charting a system also reveals what a chart lists: its stars, mainworld, gas giants and belts.
+  // The other worlds and the moons of a detailed survey are revealed on their own. Hiding it hides them all.
   if (entity.type === 'system') {
     for (const body of tx.where('body', 'systemId', id)) {
       if (presetKey === 'charted') {
-        if (body.origin === 'survey') applyPreset(tx, body.id, 'charted', audience);
+        if (body.origin === 'survey' && onCharts(body)) applyPreset(tx, body.id, 'charted', audience);
       } else {
         applyPreset(tx, body.id, 'hidden', audience);
       }

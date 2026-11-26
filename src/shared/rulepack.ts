@@ -91,6 +91,71 @@ export interface WorldRules {
     amber: { atm: DigitRule; gov: DigitRule; law: DigitRule };
   };
   tradeRoutes: { maxDistance: number; pairs: { from: string[]; to: string[] }[] };
+  /** Detailed star systems: stars, orbits, worlds and moons. Without it, systems get a simple layout. */
+  system?: SystemRules;
+}
+
+/** A modifier that applies when a condition holds; `times` multiplies it by a value (per star, per object). */
+export interface WhenDm {
+  /** A condition in the formula language of `dicex.ts`, e.g. "stars >= 3". */
+  when: string;
+  dm: number;
+  times?: string;
+}
+
+/** A figure for each luminosity class (in the order of `SystemRules.classes`) of one star type, "G5". */
+export interface StarRow {
+  type: string;
+  v: (number | null)[];
+}
+
+/** A row chosen by a roll: the first row whose `max` is not below the roll applies. */
+export interface RollRow {
+  max: number;
+}
+
+/**
+ * Tables and formulas for generating a star system. Formulas are strings in the language of
+ * `dicex.ts`; the names each may use are listed in `src/shared/rules/system.ts`.
+ */
+export interface SystemRules {
+  /** Distance in AU of each whole orbit number, from 0 upward. */
+  orbits: number[];
+  /** Luminosity classes, brightest first. */
+  classes: string[];
+  starTables: {
+    /** Results for 2D rolls of 2 to 12 in each column of the star type table. */
+    types: Record<'type' | 'hot' | 'special' | 'unusual' | 'giants' | 'peculiar', string[]>;
+    /** Numeric subtype for 2D rolls of 2 to 12; `mPrimary` for a primary of type M. */
+    subtype: { numeric: number[]; mPrimary: number[] };
+    temperature: { type: string; k: number }[];
+    mass: StarRow[];
+    diameter: StarRow[];
+    /** The closest orbit a world can keep. */
+    mao: StarRow[];
+    brownDwarfs: { type: string; mass: number; k: number; diameter: number }[];
+    whiteDwarfCooling: { gyr: number; k: number }[];
+  };
+  /** Limits on the spectral types of some classes. */
+  limits: Record<string, { remap?: Record<string, string>; mAdd?: number; coolest?: string; subtractAbove?: { type: string; above: number; by: number }; fallback?: string }>;
+  /** How another star's type follows from its parent, for 2D rolls of 2 to 12. */
+  nonPrimary: Record<'secondary' | 'companion' | 'postStellar' | 'other', string[]>;
+  /** Where the other stars of an already listed system sit, by 1D. */
+  knownPlaces: { binary: string[]; multiple: string[] };
+  eccentricity: (RollRow & { value: string })[];
+  quantities: Record<'gasGiants' | 'belts' | 'emptyOrbits' | 'anomalousOrbits', (RollRow & { n: number })[]>;
+  anomalies: (RollRow & { kind: string; eccDm: number })[];
+  /** The habitable zone: deviation from its centre for each raw temperature roll. */
+  zones: { raw: number; deviation: number; name: string }[];
+  sizes: {
+    terrestrial: (RollRow & { roll: string })[];
+    gasGiant: (RollRow & { code: string; name: string; diameter: string; mass: string; heavyFrom?: number; heavy?: string })[];
+    moonCount: { sizes?: number[]; code?: string; roll: string; dice: number }[];
+    moon: (RollRow & { size?: string; roll?: string; giant?: boolean })[];
+    giantMoon: (RollRow & { roll: string; giantAt?: number })[];
+  };
+  dm: Record<string, WhenDm[]>;
+  f: Record<string, string | number>;
 }
 
 export interface TaskRules {

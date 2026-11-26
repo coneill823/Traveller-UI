@@ -6,12 +6,12 @@
 import { useMemo, useState } from 'react';
 import { subsectorOf, parseHex } from '../../../shared/hex';
 import { decodeUwp } from '../../../shared/rules/world';
-import type { Body, BodyKind, Id } from '../../../shared/types';
-import { isValidUwp, parseUwp } from '../../../shared/uwp';
+import { PARTY, type Body, type BodyData, type BodyKind, type Id } from '../../../shared/types';
+import { ehexValue, isValidUwp, parseUwp } from '../../../shared/uwp';
 import { PushViewButton } from '../../app/Shell';
 import { run, setFields } from '../../net';
 import { navigate, setQuery } from '../../router';
-import { useCampaign, useIsGm, useRules, useType } from '../../store';
+import { toast, useCampaign, useIsGm, useRules, useType } from '../../store';
 import { ConfirmButton, cx, EditableText, Empty, Field } from '../../ui/basics';
 import { Icon, type IconName } from '../../ui/Icon';
 import { KnowledgeBadge, KnowledgeControl } from '../../ui/Knowledge';
@@ -241,7 +241,7 @@ function Schematic({ bodies, info, selectedId, onSelect, gm }: { bodies: Body[];
                 {clip(bodyName(body), 17)}
               </text>
               <text x={x} y={layout.cy + labelOffset(body, r) + 35} className="orbit-sub" textAnchor="middle">
-                {body.mainworld ? (info.sys.uwp ?? '') : (body.uwp ?? (body.name ? SHORT_LABEL[body.kind] : ''))}
+                {body.mainworld ? (info.sys.uwp ?? '') : (body.uwp ?? (body.data?.au !== undefined ? `${body.data.size && body.kind === 'planet' ? `Size ${body.data.size} · ` : ''}${body.data.au} AU` : body.name ? SHORT_LABEL[body.kind] : ''))}
               </text>
             </g>
             {children.map((child, i) => {
@@ -280,6 +280,63 @@ const ADDABLE: { kind: BodyKind; label: string; child: boolean }[] = [
   { kind: 'station', label: 'Station', child: true },
   { kind: 'poi', label: 'Point of interest', child: true },
 ];
+
+/** A length of time given in years, in the unit that reads best. */
+function periodText(years: number): string {
+  if (years >= 1000) return `${Math.round(years).toLocaleString('en-GB')} years`;
+  if (years >= 2) return `${years.toPrecision(3)} years`;
+  const days = years * 365.25;
+  if (days >= 3) return `${days.toPrecision(3)} days`;
+  return `${(days * 24).toPrecision(3)} hours`;
+}
+
+const SIZE_KM = 1600;
+/** What a size code means in plain terms. */
+function sizeText(data: BodyData): string {
+  const size = data.size ?? '';
+  if (data.diameter !== undefined) return `${size} · ${data.diameter} Earth diameters${data.mass !== undefined ? `, ${data.mass.toLocaleString('en-GB')} Earth masses` : ''}`;
+  if (size === 'S') return 'S · a few hundred kilometres across';
+  if (size === '0') return '0 · planetoids';
+  const n = ehexValue(size);
+  return n > 0 ? `${size} · about ${(n * SIZE_KM).toLocaleString('en-GB')} km across` : size;
+}
+
+const ROLE_LABEL: Record<string, string> = { primary: 'Primary star', close: 'Close companion star', near: 'Near companion star', far: 'Far companion star', companion: 'Close binary partner' };
+const ANOMALY_LABEL: Record<string, string> = { random: 'Out of step with its neighbours', eccentric: 'Eccentric orbit', inclined: 'Inclined orbit', retrograde: 'Retrograde orbit', trojan: 'Shares its orbit with another world' };
+
+/** The figures a detailed survey recorded for a body. */
+function SurveyFigures({ body }: { body: Body }) {
+  const d = body.data!;
+  const rows: [string, string][] = [];
+  if (d.designation) rows.push(['Designation', d.designation]);
+  if (d.role) rows.push(['Place', ROLE_LABEL[d.role] ?? d.role]);
+  if (d.solarMass !== undefined) rows.push(['Mass', `${d.solarMass} Suns`]);
+  if (d.solarDiameter !== undefined) rows.push(['Diameter', `${d.solarDiameter} Suns`]);
+  if (d.luminosity !== undefined) rows.push(['Luminosity', `${d.luminosity} Suns`]);
+  if (d.temperature !== undefined && d.temperature > 0) rows.push(['Surface', `${d.temperature.toLocaleString('en-GB')} K`]);
+  if (d.size) rows.push(['Size', sizeText(d)]);
+  if (d.orbitNo !== undefined) rows.push(['Orbit', `${d.orbitNo}${d.around ? ` around ${d.around}` : ''}${d.au !== undefined ? ` · ${d.au} AU` : ''}`]);
+  if (d.period !== undefined && d.period > 0) rows.push([body.kind === 'star' ? 'Period' : 'Year', periodText(d.period)]);
+  if (d.ecc) rows.push(['Eccentricity', String(d.ecc)]);
+  if (d.anomaly) rows.push(['Unusual', `${ANOMALY_LABEL[d.anomaly] ?? d.anomaly}${d.inclination !== undefined ? ` (${d.inclination}°)` : ''}`]);
+  if (d.zone && body.kind !== 'star') rows.push(['Zone', `${d.zone}${d.hz !== undefined ? ` · ${d.hz > 0 ? '+' : ''}${d.hz} from the habitable centre` : ''}`]);
+  if (d.rings) rows.push(['Rings', d.rings === 1 ? 'One ring system' : `${d.rings} ring systems`]);
+  if (d.smallMoons) rows.push(['Small moons', String(d.smallMoons)]);
+  if (rows.length === 0) return null;
+  return (
+    <div className="section">
+      <h3>Survey</h3>
+      <dl className="kv">
+        {rows.map(([label, value]) => (
+          <div key={label} style={{ display: 'contents' }}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
 
 function BodyPanel({ body, info, bodies, onSelect }: { body: Body; info: SysInfo; bodies: Body[]; onSelect: (id: Id | undefined) => void }) {
   const gm = useIsGm();
@@ -361,6 +418,8 @@ function BodyPanel({ body, info, bodies, onSelect }: { body: Body; info: SysInfo
           </div>
         )}
       </div>
+
+      {body.data && <SurveyFigures body={body} />}
 
       {decoded.length > 0 && (
         <div className="section">
@@ -485,6 +544,10 @@ export function SystemView({ systemId, bodyId, data }: { systemId: Id; bodyId?: 
   const info = data.byId.get(systemId);
   const bodies = useMemo(() => allBodies.filter((b) => b.systemId === systemId), [allBodies, systemId]);
   const [confirmRebuild, setConfirmRebuild] = useState(false);
+  const [confirmSurvey, setConfirmSurvey] = useState(false);
+  const canSurvey = !!useRules().world?.system;
+  // worlds and moons of a detailed survey that the party has not been shown
+  const unshared = useMemo(() => bodies.filter((b) => b.origin === 'survey' && !b.known?.exists?.includes(PARTY)), [bodies]);
   const selected = bodyId ? bodies.find((b) => b.id === bodyId) : undefined;
   const select = (id: Id | undefined) => setQuery({ body: id }, { replace: true });
 
@@ -582,6 +645,39 @@ export function SystemView({ systemId, bodyId, data }: { systemId: Id; bodyId?: 
             </button>
             <span className="tiny faint">Select a world to add moons, stations and points of interest to it.</span>
             <div className="grow" />
+            {info.sys.survey && unshared.length > 0 && (
+              <button
+                className="btn sm"
+                title="Charting a system shows its stars, mainworld, gas giants and belts. This shows the party every other world and moon the survey found as well."
+                onClick={() => void run('reveal.preset', { ids: unshared.map((b) => b.id), preset: 'charted', audience: PARTY }, `${unshared.length} more ${unshared.length === 1 ? 'body' : 'bodies'} shown to the party`)}
+              >
+                <Icon name="eye" size={12} /> Share the full survey
+              </button>
+            )}
+            {canSurvey &&
+              (confirmSurvey ? (
+                <>
+                  <span className="tiny" style={{ color: 'var(--warn)' }}>
+                    Works out every star, world and moon around what the listing says. Replaces the survey bodies; the mainworld and your own additions are kept.
+                  </span>
+                  <button
+                    className="btn sm primary"
+                    onClick={() => {
+                      setConfirmSurvey(false);
+                      void run<{ stars: number; worlds: number; moons: number }>('system.detail', { id: systemId }).then((res) => res && toast(`Surveyed: ${res.stars} star${res.stars === 1 ? '' : 's'}, ${res.worlds} worlds, ${res.moons} moons`, 'ok'));
+                    }}
+                  >
+                    Survey
+                  </button>
+                  <button className="btn sm ghost" onClick={() => setConfirmSurvey(false)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button className="btn sm" onClick={() => (setConfirmSurvey(true), setConfirmRebuild(false))} title="Generate the whole system in detail: stars, orbits, worlds and moons">
+                  <Icon name="globe" size={12} /> {info.sys.survey ? 'Survey again' : 'Detailed survey'}
+                </button>
+              ))}
             {confirmRebuild ? (
               <>
                 <span className="tiny" style={{ color: 'var(--warn)' }}>
@@ -601,7 +697,7 @@ export function SystemView({ systemId, bodyId, data }: { systemId: Id; bodyId?: 
                 </button>
               </>
             ) : (
-              <button className="btn sm ghost" onClick={() => setConfirmRebuild(true)} title="Recreate the stars, mainworld, gas giants and belts from the system's survey data">
+              <button className="btn sm ghost" onClick={() => (setConfirmRebuild(true), setConfirmSurvey(false))} title="Recreate the stars, mainworld, gas giants and belts from the system's survey data">
                 <Icon name="refresh" size={12} /> Rebuild from survey
               </button>
             )}
