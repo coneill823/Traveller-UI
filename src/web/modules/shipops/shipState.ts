@@ -4,7 +4,7 @@ import type { ShipRules, SpaceRules } from '../../../shared/rulepack';
 import { evaluateDesign, type DesignReport } from '../../../shared/rules/ship';
 import { conditionOf, critEffect, effectiveThrust, jumpAvailable, partsAt, powerFactor, type ShipCondition } from '../../../shared/rules/space';
 import type { Character, Id, Ship } from '../../../shared/types';
-import { useApp, useMe, useRules } from '../../store';
+import { useById, useMe, useRules } from '../../store';
 
 export function useShipReport(ship: Ship | undefined): DesignReport | undefined {
   const rules = useRules().ships;
@@ -73,16 +73,16 @@ export interface Station {
 
 /** Who is at which station aboard, as far as this viewer can see. */
 export function useStations(ship: Ship | undefined): Station[] {
-  const ents = useApp((s) => s.ents);
+  const characters = useById('character');
   const me = useMe();
   return useMemo(() => {
     const out: Station[] = [];
     for (const [characterId, d] of Object.entries(ship?.duties ?? {})) {
-      const character = ents[characterId] as Character | undefined;
+      const character = characters.get(characterId);
       out.push({ characterId, character, name: character?.name ?? 'Crew member', duty: d.duty, mount: d.mount, mine: !!character && character.kind === 'pc' && character.ownerId === me?.playerId });
     }
     return out;
-  }, [ship?.duties, ents, me]);
+  }, [ship?.duties, characters, me]);
 }
 
 /** Weapon mounts of a design with what they carry, for gunners to pick from. */

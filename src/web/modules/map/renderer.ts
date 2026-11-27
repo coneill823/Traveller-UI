@@ -6,10 +6,11 @@
  * view or the data changes. The overlay (hover, selection, planned route, party marker) changes
  * as the pointer moves, so it is kept cheap.
  */
-import { HEX_SIZE, ROW_H, SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, SUB_H, SUB_W, hexCenter, hexesWithin, parseGlobalKey, sectorRect, subsectorRect, type GlobalHex } from '../../../shared/hex';
+import { HEX_SIZE, ROW_H, SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, SUB_H, SUB_W, hexCenter, hexesWithin, sectorRect, subsectorRect, type GlobalHex } from '../../../shared/hex';
 import type { Id } from '../../../shared/types';
 import type { MapData, SysInfo } from './mapData';
 import { LOD, type Layers, type MapView } from './mapStore';
+import { shapeOf } from './regionShape';
 
 export interface Viewport extends MapView {
   w: number;
@@ -257,56 +258,58 @@ function drawSectorFrames(ctx: CanvasRenderingContext2D, v: Viewport, data: MapD
 
 function drawRegions(ctx: CanvasRenderingContext2D, v: Viewport, data: MapData): void {
   if (v.scale < 2) return;
+  const ox = v.w / 2 - v.cx * v.scale;
+  const oy = v.h / 2 - v.cy * v.scale;
+  const k = v.scale;
+  const s = HEX_SIZE * k;
+  const h = (ROW_H * k) / 2;
   for (const region of data.regions) {
     if (region.hexes.length === 0) continue;
-    const members = new Set(region.hexes);
+    const shape = shapeOf(region.hexes);
+    if (shape.box.x1 * k + ox < 0 || shape.box.y1 * k + oy < 0 || shape.box.x0 * k + ox > v.w || shape.box.y0 * k + oy > v.h) continue;
+    const { runs, edges } = shape;
+
     ctx.fillStyle = region.color;
     ctx.globalAlpha = 0.1;
-    for (const key of region.hexes) {
-      const { gx, gy } = parseGlobalKey(key);
-      const c = hexCenter(gx, gy);
-      const p = toScreen(v, c.x, c.y);
-      if (p.x < -v.scale || p.y < -v.scale || p.x > v.w + v.scale || p.y > v.h + v.scale) continue;
-      hexPath(ctx, p.x, p.y, v.scale, -0.5);
-      ctx.fill();
+    ctx.beginPath();
+    for (let i = 0; i < runs.length; i += 3) {
+      const gx = runs[i];
+      const px = gx * k + ox;
+      if (px < -k || px > v.w + k) continue;
+      const shift = 0.5 * (gx & 1);
+      if (k < LOD.grid) {
+        // Far out a hex is only a few pixels across, so a whole stretch of a column is filled as one strip.
+        const y0 = (runs[i + 1] + shift - 0.5) * ROW_H * k + oy;
+        const y1 = (runs[i + 2] + shift + 0.5) * ROW_H * k + oy;
+        if (y1 < 0 || y0 > v.h) continue;
+        ctx.rect(px - k / 2, y0, k, y1 - y0);
+        continue;
+      }
+      for (let gy = runs[i + 1]; gy <= runs[i + 2]; gy++) {
+        const py = (gy + shift) * ROW_H * k + oy;
+        if (py < -k || py > v.h + k) continue;
+        ctx.moveTo(px + s, py);
+        ctx.lineTo(px + s / 2, py + h);
+        ctx.lineTo(px - s / 2, py + h);
+        ctx.lineTo(px - s, py);
+        ctx.lineTo(px - s / 2, py - h);
+        ctx.lineTo(px + s / 2, py - h);
+        ctx.closePath();
+      }
     }
+    ctx.fill();
+
     // Border: every hex edge that faces a hex outside the region.
     ctx.globalAlpha = 0.85;
     ctx.strokeStyle = region.color;
-    ctx.lineWidth = clamp(v.scale * 0.06, 1, 3);
-    const s = HEX_SIZE * v.scale;
-    const h = (ROW_H * v.scale) / 2;
+    ctx.lineWidth = clamp(k * 0.06, 1, 3);
     ctx.beginPath();
-    for (const key of region.hexes) {
-      const { gx, gy } = parseGlobalKey(key);
-      const c = hexCenter(gx, gy);
-      const p = toScreen(v, c.x, c.y);
-      if (p.x < -v.scale || p.y < -v.scale || p.x > v.w + v.scale || p.y > v.h + v.scale) continue;
-      const corners = [
-        [p.x + s, p.y],
-        [p.x + s / 2, p.y + h],
-        [p.x - s / 2, p.y + h],
-        [p.x - s, p.y],
-        [p.x - s / 2, p.y - h],
-        [p.x + s / 2, p.y - h],
-      ];
-      // Neighbours in the same order as the edges between consecutive corners.
-      const shift = gx & 1;
-      const neighbours: [number, number][] = [
-        [gx + 1, gy + shift],
-        [gx, gy + 1],
-        [gx - 1, gy + shift],
-        [gx - 1, gy + shift - 1],
-        [gx, gy - 1],
-        [gx + 1, gy + shift - 1],
-      ];
-      for (let i = 0; i < 6; i++) {
-        if (members.has(`${neighbours[i][0]},${neighbours[i][1]}`)) continue;
-        const a = corners[i];
-        const b = corners[(i + 1) % 6];
-        ctx.moveTo(a[0], a[1]);
-        ctx.lineTo(b[0], b[1]);
-      }
+    for (let i = 0; i < edges.length; i += 4) {
+      const x1 = edges[i] * k + ox;
+      const y1 = edges[i + 1] * k + oy;
+      if (x1 < -k || y1 < -k || x1 > v.w + k || y1 > v.h + k) continue;
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(edges[i + 2] * k + ox, edges[i + 3] * k + oy);
     }
     ctx.stroke();
     ctx.globalAlpha = 1;

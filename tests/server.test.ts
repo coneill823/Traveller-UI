@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Body, Campaign, Sector, StarSystem } from '../src/shared/types';
+import type { Body, Campaign, Region, RouteLine, Sector, StarSystem } from '../src/shared/types';
 import { startServer } from '../src/server/index';
 import { eventually, HAS_CORE_RULES, post, setTable, TestClient, testConfig, type Table } from './helpers';
 
@@ -150,6 +150,42 @@ describe('map knowledge', () => {
     await eventually(() => expect(ann.client.get(route)).toBeUndefined());
   });
 
+  it('shows a route as part of the chart of either end', async () => {
+    const sectorId = (await table.gm.act('sector.create', { name: 'Route Test', x: 40, y: 40 })).id;
+    const one = (await table.gm.act('system.create', { sectorId, hex: '0101', name: 'One', uwp: 'B544756-A', reveal: false })).id;
+    const two = (await table.gm.act('system.create', { sectorId, hex: '0102', name: 'Two', uwp: 'C8759A9-8', reveal: false })).id;
+    const three = (await table.gm.act('system.create', { sectorId, hex: '0103', name: 'Three', uwp: 'E200000-0', reveal: false })).id;
+    const near = (await table.gm.act('route.create', { a: one, b: two })).id;
+    const far = (await table.gm.act('route.create', { a: two, b: three })).id;
+    const seen = () => [near, far].filter((id) => ann.client.get(id) !== undefined);
+    // Two dots on the map do not make a route.
+    await table.gm.act('reveal.preset', { ids: [one, two, three], preset: 'detected', audience: 'party' });
+    await eventually(() => expect(ann.client.get(three)).toBeDefined());
+    expect(seen()).toEqual([]);
+    // Charting one end shows the routes that leave it, as far as the next known system.
+    await table.gm.act('reveal.preset', { ids: [one], preset: 'charted', audience: 'party' });
+    await eventually(() => expect(seen()).toEqual([near]));
+    expect(ann.client.get<RouteLine>(near)).toMatchObject({ a: one, b: two, kind: 'comm' });
+    expect(ann.client.get(near)).not.toHaveProperty('known');
+    await table.gm.act('reveal.preset', { ids: [three], preset: 'charted', audience: 'party' });
+    await eventually(() => expect(seen()).toEqual([near, far]));
+    // Take the charts back and the routes go with them; lose sight of an end and its routes go too.
+    await table.gm.act('reveal.preset', { ids: [one, three], preset: 'detected', audience: 'party' });
+    await eventually(() => expect(seen()).toEqual([]));
+    await table.gm.act('reveal.preset', { ids: [one], preset: 'charted', audience: 'party' });
+    await eventually(() => expect(seen()).toEqual([near]));
+    await table.gm.act('reveal.preset', { ids: [two], preset: 'hidden', audience: 'party' });
+    await eventually(() => expect(seen()).toEqual([]));
+    // Bob alone learns that Two is there and has Three charted. With the party's chart of One that gives him both routes; Ann still has neither.
+    await table.gm.act('reveal.preset', { ids: [two], preset: 'detected', audience: bob.id });
+    await table.gm.act('reveal.preset', { ids: [three], preset: 'charted', audience: bob.id });
+    await eventually(() => expect(bob.client.get(far)).toBeDefined());
+    expect(bob.client.get(near)).toBeDefined();
+    expect(seen()).toEqual([]);
+    await table.gm.act('entity.delete', { id: sectorId });
+    await eventually(() => expect(bob.client.get(far)).toBeUndefined());
+  });
+
   it('moves the party and marks the destination as charted', async () => {
     await table.gm.act('party.moveTo', { systemId: vesk });
     await eventually(() => expect(ann.client.all('campaign')[0] as Campaign).toMatchObject({ location: { systemId: vesk } }));
@@ -190,6 +226,93 @@ describe('imports and generation', () => {
     expect(replaced).toMatchObject({ replaced: 1 });
     await eventually(() => expect(ann.client.all('system').find((s: StarSystem) => s.hex === '0911')).toMatchObject({ name: 'Brannoch II', uwp: 'B8759A9-9' }));
     await expect(table.gm.act('map.import', { sectorId, subsector: 'A', worlds: [{ hex: '0911', name: 'Too far', uwp: 'B8759A9-9' }] })).rejects.toThrow(/does not fit/);
+  });
+
+  it('draws a route into the next sector once that sector has the system', async () => {
+    const west = (await table.gm.act('sector.create', { name: 'West Reach', x: 20, y: 20 })).id;
+    const first = await table.gm.act('map.import', {
+      sectorId: west,
+      worlds: [{ hex: '3201', name: 'Edge', uwp: 'B544756-A' }, { hex: '3105', name: 'Inner', uwp: 'C8759A9-8' }],
+      routes: [
+        { start: '3105', end: '3201' },
+        { start: '3201', end: '0102', endOffset: [1, 0] },
+        { start: '0140', startOffset: [0, 1], end: '3105' },
+        { start: '0505', end: '0606' },
+      ],
+    });
+    // The neighbours are not on the map yet: the two routes that leave the sector wait, the one with no worlds at all is dropped.
+    expect(first).toMatchObject({ created: 2, routes: 1, routesWaiting: 2 });
+    expect(table.gm.get<Sector>(west)!.gm).toMatchObject({ waitingRoutes: [{ start: '3201', end: '0102', endOffset: [1, 0] }, { start: '0140', startOffset: [0, 1], end: '3105' }] });
+    // Importing the same thing again changes nothing.
+    expect(await table.gm.act('map.import', { sectorId: west, worlds: [], routes: [{ start: '3201', end: '0102', endOffset: [1, 0] }] })).toMatchObject({ created: 0, routes: 0, routesWaiting: 2 });
+
+    const east = (await table.gm.act('sector.create', { name: 'East Reach', x: 21, y: 20 })).id;
+    const second = await table.gm.act('map.import', { sectorId: east, worlds: [{ hex: '0102', name: 'Landing', uwp: 'A646930-D' }], reveal: { preset: 'charted', audience: 'party' } });
+    expect(second).toMatchObject({ created: 1, routes: 1, routesWaiting: 0 });
+    const system = (sectorId: string, hex: string) => table.gm.all('system').find((x) => x.sectorId === sectorId && x.hex === hex)!.id;
+    const joined = (a: string, b: string) => table.gm.all('route').some((r: RouteLine) => (r.a === a && r.b === b) || (r.a === b && r.b === a));
+    expect(joined(system(west, '3201'), system(east, '0102'))).toBe(true);
+    expect(table.gm.get<Sector>(west)!.gm).toMatchObject({ waitingRoutes: [{ start: '0140', startOffset: [0, 1], end: '3105' }] });
+
+    // The other way round: the neighbour is already there, so the route is drawn at once.
+    const south = (await table.gm.act('sector.create', { name: 'South Reach', x: 20, y: 21 })).id;
+    const third = await table.gm.act('map.import', { sectorId: south, worlds: [{ hex: '0140', name: 'Deep', uwp: 'E200000-0' }, { hex: '0101', name: 'Shoal', uwp: 'C8759A9-8' }], routes: [{ start: '0101', end: '3201', endOffset: [0, -1] }] });
+    expect(third).toMatchObject({ created: 2, routes: 2, routesWaiting: 0 });
+    expect(joined(system(south, '0140'), system(west, '3105'))).toBe(true);
+    expect(joined(system(south, '0101'), system(west, '3201'))).toBe(true);
+    expect(table.gm.get<Sector>(west)!.gm).toBeUndefined();
+    // Players are never sent the list of routes in waiting.
+    await eventually(() => expect(ann.client.get<Sector>(east)).toBeDefined());
+    expect(JSON.stringify([...ann.client.ents.values()])).not.toContain('waitingRoutes');
+    await expect(table.gm.act('map.import', { sectorId: west, worlds: [], routes: [{ start: '3201', end: '0102', endOffset: [2, 0] }] })).rejects.toThrow();
+  });
+
+  it('paints borders as regions, one per name across sectors, and shows them with a charted import', async () => {
+    const a = (await table.gm.act('sector.create', { name: 'Concord North', x: 30, y: 30 })).id;
+    const b = (await table.gm.act('sector.create', { name: 'Concord South', x: 30, y: 31 })).id;
+    const hidden = await table.gm.act('map.import', {
+      sectorId: a,
+      worlds: [{ hex: '0139', name: 'Brink', uwp: 'B544756-A' }, { hex: '0140', name: 'Verge', uwp: 'C8759A9-8' }],
+      routes: [{ start: '0139', end: '0140' }],
+      borders: [{ name: 'Kestrel Concord', color: 'Gold', hexes: ['0139', '0140'] }, { name: 'Tolland League', hexes: ['3201'] }],
+    });
+    expect(hidden).toMatchObject({ created: 2, routes: 1, regions: 2 });
+    const concord = () => table.gm.all('region').filter((r: Region) => r.name === 'Kestrel Concord');
+    expect(concord()).toHaveLength(1);
+    // Hexes are kept in map-wide coordinates: sector 30,30 starts at column 960, row 1200.
+    expect(concord()[0]).toMatchObject({ color: 'gold', hexes: ['960,1238', '960,1239'] });
+    expect(table.gm.all('region').find((r: Region) => r.name === 'Tolland League')!.color).toMatch(/^#[0-9a-f]{6}$/);
+    // Nothing was revealed, so players see neither the regions nor the route.
+    await new Promise((r) => setTimeout(r, 60));
+    expect(ann.client.all('region')).toHaveLength(0);
+    expect(ann.client.all('route').some((r: RouteLine) => hidden.routeIds.includes(r.id))).toBe(false);
+
+    const charted = await table.gm.act('map.import', {
+      sectorId: b,
+      worlds: [{ hex: '0101', name: 'Southgate', uwp: 'A646930-D' }, { hex: '0102', name: 'Low Water', uwp: 'C555423-7' }],
+      routes: [{ start: '0101', end: '0102' }],
+      borders: [{ name: 'kestrel concord', color: 'blue', hexes: ['0101', '0102'] }],
+      reveal: { preset: 'charted', audience: 'party' },
+    });
+    expect(charted).toMatchObject({ created: 2, routes: 1, regions: 1 });
+    // The second sector's border joined the region of the same name and kept its colour.
+    expect(concord()).toHaveLength(1);
+    expect(concord()[0]).toMatchObject({ color: 'gold', hexes: ['960,1238', '960,1239', '960,1240', '960,1241'] });
+    await eventually(() => expect(ann.client.all('region').map((r: Region) => r.name)).toEqual(['Kestrel Concord']));
+    await eventually(() => expect(ann.client.all('route').some((r: RouteLine) => charted.routeIds.includes(r.id))).toBe(true));
+    // Importing the same border again adds nothing.
+    expect(await table.gm.act('map.import', { sectorId: b, worlds: [], borders: [{ name: 'Kestrel Concord', hexes: ['0101', '0102'] }] })).toMatchObject({ regions: 0 });
+    await expect(table.gm.act('map.import', { sectorId: b, worlds: [], borders: [{ name: 'Bad', hexes: ['9999'] }] })).rejects.toThrow(/not a valid hex/);
+
+    // What is painted over a sector moves with it and goes when it is deleted.
+    await table.gm.act('sector.move', { id: b, x: 31, y: 31 });
+    expect(concord()[0].hexes).toEqual(['960,1238', '960,1239', '992,1240', '992,1241']);
+    await table.gm.act('entity.delete', { id: b });
+    expect(concord()[0].hexes).toEqual(['960,1238', '960,1239']);
+    await table.gm.act('entity.delete', { id: a });
+    expect(concord()).toHaveLength(0);
+    expect(table.gm.all('region').some((r: Region) => r.name === 'Tolland League')).toBe(false);
+    await eventually(() => expect(ann.client.all('region')).toHaveLength(0));
   });
 
   it.skipIf(!HAS_CORE_RULES)('generates a subsector from the rules pack, reproducibly by seed', async () => {

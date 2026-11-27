@@ -1,7 +1,8 @@
 /** Campaign-wide actions: settings, players, generic edits, knowledge reveals, notes and dice. */
 import { FACETS, PRESETS, toggleAudience, withAudience, type Viewer } from '../../shared/knowledge';
+import { SECTOR_H, SECTOR_W, globalKey, parseGlobalKey } from '../../shared/hex';
 import { rootField, type PatchOp } from '../../shared/patch';
-import { PARTY, type Audience, type Body, type Campaign, type Character, type Encounter, type Entity, type Id, type Note, type Objective, type Player, type Roll, type StarSystem } from '../../shared/types';
+import { PARTY, type Audience, type Body, type Campaign, type Character, type Encounter, type Entity, type Id, type Note, type Objective, type Player, type Region, type Roll, type Sector, type StarSystem } from '../../shared/types';
 import { newId, rollDice, sum } from '../../shared/util';
 import { prettyCode } from '../auth';
 import type { Tx } from '../state';
@@ -97,6 +98,33 @@ export function authorisePatch(entity: Entity, me: Viewer, ops: PatchOp[]): void
   }
 }
 
+/**
+ * Regions are painted in map-wide hexes, so they do not know which sector they lie over. When a
+ * sector moves, the part of each region that lay over it moves too; when it is deleted (`to`
+ * undefined), that part is rubbed out, and a region left with nothing is removed.
+ */
+export function moveRegionHexes(tx: Tx, sector: Sector, to: { x: number; y: number } | undefined): void {
+  const gx0 = sector.x * SECTOR_W;
+  const gy0 = sector.y * SECTOR_H;
+  const dx = to ? (to.x - sector.x) * SECTOR_W : 0;
+  const dy = to ? (to.y - sector.y) * SECTOR_H : 0;
+  for (const region of tx.all('region')) {
+    const next = new Set<string>();
+    let touched = false;
+    for (const key of region.hexes) {
+      const { gx, gy } = parseGlobalKey(key);
+      if (gx < gx0 || gx >= gx0 + SECTOR_W || gy < gy0 || gy >= gy0 + SECTOR_H) next.add(key);
+      else {
+        touched = true;
+        if (to) next.add(globalKey(gx + dx, gy + dy));
+      }
+    }
+    if (!touched) continue;
+    if (next.size === 0) tx.delete(region.id);
+    else tx.update<Region>(region.id, (r) => void (r.hexes = [...next]));
+  }
+}
+
 /** Deletes an entity together with everything that only makes sense while it exists. */
 export function cascadeDelete(tx: Tx, id: Id): void {
   const entity = tx.get(id);
@@ -104,6 +132,8 @@ export function cascadeDelete(tx: Tx, id: Id): void {
   switch (entity.type) {
     case 'sector':
       for (const system of tx.where('system', 'sectorId', id)) cascadeDelete(tx, system.id);
+      // What was painted over the sector goes with it.
+      moveRegionHexes(tx, entity as Sector, undefined);
       break;
     case 'system':
       for (const body of tx.where('body', 'systemId', id)) tx.delete(body.id);

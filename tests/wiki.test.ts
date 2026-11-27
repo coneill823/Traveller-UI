@@ -196,6 +196,12 @@ describe('wiki sync with a local Chronicler vault', () => {
     await eventually(() => expect(fs.existsSync(path.join(vault, 'Atlas/Kestrel Reach/Subsector B/Brannoch.md'))).toBe(true), 4000);
     // Two systems with the same name get distinct files; awkward characters are made safe.
     await eventually(() => expect(fs.readdirSync(path.join(vault, 'Atlas/Kestrel Reach/Subsector B')).sort()).toEqual(['Brannoch (0902).md', 'Brannoch.md', 'St. Idris The Rock.md']), 4000);
+    // One import can leave its pages out; they can still be made afterwards.
+    const quiet = await table.gm.act('map.import', { sectorId, subsector: 'D', wikiPages: false, worlds: [{ hex: '0101', name: 'Unwritten', uwp: 'C8759A9-8' }] });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(fs.existsSync(path.join(vault, 'Atlas/Kestrel Reach/Subsector D'))).toBe(false);
+    expect(await table.gm.act('wiki.publish', { ids: quiet.systemIds })).toMatchObject({ written: 1 });
+    expect(fs.existsSync(path.join(vault, 'Atlas/Kestrel Reach/Subsector D/Unwritten.md'))).toBe(true);
     // Turning auto-publish off stops it.
     await table.gm.act('entity.patch', { id: 'campaign', ops: [{ op: 'set', path: ['settings', 'wikiAutoPublish'], value: false }] });
     await table.gm.act('map.import', { sectorId, subsector: 'C', worlds: [{ hex: '0101', name: 'Quiet', uwp: 'C8759A9-8' }] });

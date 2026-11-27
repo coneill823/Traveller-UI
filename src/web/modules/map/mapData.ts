@@ -65,6 +65,13 @@ function worldColor(u: Uwp | null): { color: string; glyph: SysInfo['glyph'] } {
   return { color: WORLD_COLORS.desert, glyph: 'world' };
 }
 
+/**
+ * What was worked out for a system last time. A system's record is replaced whenever it changes,
+ * so an entry stays good for as long as the record, its sector and the rules are the same ones:
+ * on a map of thousands of systems an edit to one then costs one system's worth of work.
+ */
+const infoCache = new WeakMap<StarSystem, { sector: Sector; rules: WorldRules | undefined; info: SysInfo }>();
+
 export function useMapData(): MapData {
   const sectors = useType('sector');
   const systems = useType('system');
@@ -80,6 +87,13 @@ export function useMapData(): MapData {
     const byHex = new Map<string, SysInfo>();
     for (const sys of systems) {
       const sector = sectorById.get(sys.sectorId);
+      const kept = infoCache.get(sys);
+      if (kept && kept.sector === sector && kept.rules === rules) {
+        infos.push(kept.info);
+        byId.set(sys.id, kept.info);
+        byHex.set(globalKey(kept.info.gx, kept.info.gy), kept.info);
+        continue;
+      }
       const h = parseHex(sys.hex);
       if (!sector || !h) continue;
       const { gx, gy } = toGlobal(sector.x, sector.y, h.col, h.row);
@@ -105,6 +119,7 @@ export function useMapData(): MapData {
         glyph: look.glyph,
         highPop: !!uwp && uwp.pop >= 9,
       };
+      infoCache.set(sys, { sector, rules, info });
       infos.push(info);
       byId.set(sys.id, info);
       byHex.set(globalKey(gx, gy), info);

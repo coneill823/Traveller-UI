@@ -83,7 +83,8 @@ export const FACETS: Partial<Record<EntityType, FacetSpec[]>> = {
     { key: 'name', label: 'Name', hint: 'The name is shown.', fields: ['name'] },
     { key: 'survey', label: 'Details', hint: 'Profile, classification, survey figures and summary.', fields: ['uwp', 'subtype', 'summary', 'data'] },
   ],
-  route: [{ key: 'exists', label: 'Known', hint: 'The route is drawn on the map.', fields: ['a', 'b', 'kind', 'label'] }],
+  // A route also shows, without this, to anyone who has had either of its ends charted.
+  route: [{ key: 'exists', label: 'Known', hint: 'The route is drawn on the map even where neither end has been charted.', fields: ['a', 'b', 'kind', 'label'] }],
   region: [{ key: 'exists', label: 'Known', hint: 'The region is drawn on the map.', fields: ['name', 'color', 'hexes'] }],
   // Non-player characters and creatures. Player characters are always visible to the whole party.
   character: [
@@ -209,11 +210,20 @@ export function redact(entity: Entity, v: Viewer, get: Lookup): Entity | null {
       return facetView(entity, v) as Entity | null;
     }
     case 'route': {
+      // A route belongs to the chart of the systems it joins: it shows when the viewer knows both
+      // ends are there and has had at least one of them charted. One the GM has shown outright
+      // needs only the two ends.
       const r = entity as RouteLine;
       const a = get(r.a);
       const b = get(r.b);
       if (!a || !b || !knows(a, 'exists', v) || !knows(b, 'exists', v)) return null;
-      return facetView(entity, v) as Entity | null;
+      if (!knows(entity, 'exists', v) && !knows(a, 'survey', v) && !knows(b, 'survey', v)) return null;
+      const out: Record<string, unknown> = { a: r.a, b: r.b, kind: r.kind };
+      for (const key of ALWAYS) out[key] = r[key];
+      if (r.label !== undefined) out.label = r.label;
+      const notes = visibleNotes(r.notes, v);
+      if (notes) out.notes = notes;
+      return out as unknown as Entity;
     }
     case 'objective': {
       const o = entity as Objective;

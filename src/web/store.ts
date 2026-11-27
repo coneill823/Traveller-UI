@@ -1,6 +1,11 @@
 /**
  * Client state. `ents` mirrors exactly what the server has sent this viewer (already redacted);
  * the client never holds more than it is allowed to see.
+ *
+ * A big map means tens of thousands of records, so an update must cost in proportion to what
+ * changed, not to everything held. `ents` is therefore changed in place and keeps its identity:
+ * components read one entry (`useEntity`), a type's list (`useType`) or a type's lookup
+ * (`useById`), each of which is replaced only when something in it changes.
  */
 import { useMemo } from 'react';
 import { create } from 'zustand';
@@ -59,24 +64,45 @@ export function applySnapshot(list: Entity[]): void {
 
 export function applyPatch(up: Entity[], del: Id[]): void {
   const state = get();
-  const ents = { ...state.ents };
-  const touched = new Set<EntityType>();
+  const ents = state.ents;
+  const gone = new Map<EntityType, Set<Id>>();
+  const fresh = new Map<EntityType, Map<Id, Entity>>();
+  const drop = (old: Entity): void => {
+    let ids = gone.get(old.type);
+    if (!ids) gone.set(old.type, (ids = new Set()));
+    ids.add(old.id);
+  };
   for (const id of del) {
     const old = ents[id];
-    if (old) {
-      touched.add(old.type);
-      delete ents[id];
-    }
+    if (!old) continue;
+    drop(old);
+    delete ents[id];
   }
   for (const e of up) {
+    const old = ents[e.id];
+    if (old && old.type !== e.type) drop(old);
     ents[e.id] = e;
-    touched.add(e.type);
+    let list = fresh.get(e.type);
+    if (!list) fresh.set(e.type, (list = new Map()));
+    list.set(e.id, e);
   }
-  if (touched.size === 0) return;
+  if (gone.size === 0 && fresh.size === 0) return;
   const byType = { ...state.byType };
-  // Rebuild only the lists of the types that changed.
-  for (const type of touched) byType[type] = [];
-  for (const e of Object.values(ents)) if (touched.has(e.type)) byType[e.type]!.push(e);
+  // Only the lists of the types that changed are rebuilt, each from its own old list: entries keep their places and new ones go on the end.
+  for (const type of new Set([...gone.keys(), ...fresh.keys()])) {
+    const removed = gone.get(type);
+    const added = new Map(fresh.get(type) ?? []);
+    const next: Entity[] = [];
+    for (const e of state.byType[type] ?? []) {
+      const newer = added.get(e.id);
+      if (newer) {
+        next.push(newer);
+        added.delete(e.id);
+      } else if (!removed?.has(e.id)) next.push(e);
+    }
+    for (const e of added.values()) next.push(e);
+    byType[type] = next;
+  }
   set({ ents, byType });
 }
 
@@ -86,6 +112,12 @@ const EMPTY: Entity[] = [];
 
 export function useType<T extends EntityType>(type: T): EntityOf<T>[] {
   return useApp((s) => (s.byType[type] ?? EMPTY) as EntityOf<T>[]);
+}
+
+/** Every entity of a type by id. The lookup is replaced only when something of that type changes. */
+export function useById<T extends EntityType>(type: T): Map<Id, EntityOf<T>> {
+  const list = useType(type);
+  return useMemo(() => new Map(list.map((e) => [e.id, e])), [list]);
 }
 
 export function useEntity<T extends Entity = Entity>(id: Id | undefined | null): T | undefined {

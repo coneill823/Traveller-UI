@@ -2,13 +2,15 @@
 import { useMemo, useState } from 'react';
 import { SUBSECTOR_LETTERS, galacticDirection } from '../../../shared/hex';
 import { PRESETS } from '../../../shared/knowledge';
-import { PARTY, type Sector } from '../../../shared/types';
+import { PARTY, type Region, type Sector, type StarSystem } from '../../../shared/types';
 import { act, run, setFields } from '../../net';
 import { toast, useType } from '../../store';
 import { ConfirmButton, cx, Field, Modal } from '../../ui/basics';
+import { cssToHex } from '../../ui/color';
 import { Icon } from '../../ui/Icon';
 import { GenerateDialog, ImportDialog } from './ImportDialog';
 import { fitTo } from './mapStore';
+import { TravellerMapDialog } from './TravellerMapDialog';
 
 /** Free positions next to existing sectors (or the origin when there are none). */
 export function freeSlots(sectors: Sector[]): { x: number; y: number }[] {
@@ -112,17 +114,25 @@ export function NewSectorDialog({ at, onClose }: { at?: { x: number; y: number }
   );
 }
 
-function SectorCard({ sector }: { sector: Sector }) {
-  const systems = useType('system');
+const NO_SYSTEMS: StarSystem[] = [];
+
+function SectorCard({ sector, mine, foldable }: { sector: Sector; mine: StarSystem[]; foldable: boolean }) {
   const sectors = useType('sector');
   const [dialog, setDialog] = useState<'import' | 'generate' | 'names' | 'move' | null>(null);
-  const mine = useMemo(() => systems.filter((s) => s.sectorId === sector.id), [systems, sector.id]);
-  const charted = mine.filter((s) => s.known?.survey?.includes(PARTY)).length;
+  // With many sectors each is one line until it is opened.
+  const [open, setOpen] = useState(false);
+  const charted = useMemo(() => mine.filter((s) => s.known?.survey?.includes(PARTY)).length, [mine]);
   const [pos, setPos] = useState({ x: sector.x, y: sector.y });
+  const shown = open || !foldable;
 
   return (
     <div className="panel">
       <div className="panel-head">
+        {foldable && (
+          <button className="btn ghost icon sm" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={`${open ? 'Close' : 'Open'} the tools for ${sector.name}`} title={open ? 'Close' : 'Import, generate, names, knowledge and more'}>
+            <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />
+          </button>
+        )}
         <input className="input" style={{ maxWidth: 240, fontFamily: 'var(--font-display)', letterSpacing: '.06em' }} defaultValue={sector.name} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== sector.name && void setFields(sector.id, { name: e.target.value.trim() })} aria-label="Sector name" />
         <span className="small dim grow">
           {mine.length} systems · {charted} charted for the party
@@ -131,6 +141,7 @@ function SectorCard({ sector }: { sector: Sector }) {
           <Icon name="focus" size={13} /> View
         </button>
       </div>
+      {shown && (
       <div className="panel-body col">
         <div className="row wrap">
           <button className="btn sm primary" onClick={() => setDialog('import')}>
@@ -188,16 +199,115 @@ function SectorCard({ sector }: { sector: Sector }) {
           <ConfirmButton label="Delete sector" confirm="Delete sector and everything in it" icon="trash" onConfirm={() => void run('entity.delete', { id: sector.id })} />
         </div>
       </div>
+      )}
       {dialog === 'import' && <ImportDialog sector={sector} onClose={() => setDialog(null)} />}
       {dialog === 'generate' && <GenerateDialog sector={sector} onClose={() => setDialog(null)} />}
     </div>
   );
 }
 
+function RegionRow({ region }: { region: Region }) {
+  const shown = region.known?.exists?.includes(PARTY) ?? false;
+  const [color, setColor] = useState(cssToHex(region.color) ?? '#888888');
+  return (
+    <div className="region-row">
+      {/* The picker reports every shade it passes over, so the choice is saved when the picker closes. */}
+      <input type="color" value={color} onChange={(e) => setColor(e.target.value)} onBlur={() => color !== region.color && void setFields(region.id, { color })} title="Colour on the map" aria-label={`Colour of ${region.name}`} />
+      <input className="input" defaultValue={region.name} aria-label="Region name" onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== region.name && void setFields(region.id, { name: e.target.value.trim().slice(0, 60) })} />
+      <span className="small dim mono">{region.hexes.length} hexes</span>
+      <button className={cx('btn sm', !shown && 'gm')} onClick={() => void run('reveal.set', { ids: [region.id], facets: ['exists'], audience: PARTY, on: !shown })} title={shown ? 'The party sees this region on their map. Click to hide it.' : 'Only you see this region. Click to show it to the party.'}>
+        <Icon name={shown ? 'eye' : 'eyeOff'} size={12} /> {shown ? 'Shown' : 'Hidden'}
+      </button>
+      <ConfirmButton label="" confirm="Delete region" icon="trash" onConfirm={() => void run('entity.delete', { id: region.id })} />
+    </div>
+  );
+}
+
+/** Painted areas of the map: the borders that came with imported sectors. */
+function RegionList() {
+  const regions = useType('region');
+  const [all, setAll] = useState(false);
+  const sorted = useMemo(() => [...regions].sort((a, b) => b.hexes.length - a.hexes.length || a.name.localeCompare(b.name)), [regions]);
+  if (sorted.length === 0) return null;
+  const shown = all ? sorted : sorted.slice(0, 6);
+  const ids = sorted.map((r) => r.id);
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <strong className="grow">Regions</strong>
+        <span className="small dim">{sorted.length} painted on the map</span>
+        <button className="btn sm gm" onClick={() => void run('reveal.set', { ids, facets: ['exists'], audience: PARTY, on: true }, 'The party now sees every region')}>
+          Show all to the party
+        </button>
+        <button className="btn sm gm" onClick={() => void run('reveal.set', { ids, facets: ['exists'], audience: PARTY, on: false }, 'Regions hidden from the party')}>
+          Hide all
+        </button>
+      </div>
+      <div className="panel-body col gap-4">
+        {shown.map((r) => (
+          <RegionRow key={r.id} region={r} />
+        ))}
+        {sorted.length > 6 && (
+          <button className="btn ghost sm" style={{ alignSelf: 'flex-start' }} onClick={() => setAll(!all)}>
+            {all ? 'Show the largest only' : `Show all ${sorted.length}`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Sets what the party knows about every system on the map, a few thousand at a time. */
+async function setAllKnowledge(systems: StarSystem[], preset: string, label: string): Promise<void> {
+  try {
+    for (let i = 0; i < systems.length; i += 4000) await act('reveal.preset', { ids: systems.slice(i, i + 4000).map((s) => s.id), preset, audience: PARTY });
+    toast(`All ${systems.length} systems are now ${label.toLowerCase()} for the party.`, 'ok');
+  } catch (err) {
+    toast((err as Error).message, 'error');
+  }
+}
+
+/** Totals for the whole map and the one thing worth doing to all of it at once. */
+function WholeMap({ sectors, systems }: { sectors: Sector[]; systems: StarSystem[] }) {
+  const charted = useMemo(() => systems.filter((s) => s.known?.survey?.includes(PARTY)).length, [systems]);
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <strong>The whole map</strong>
+        <span className="small dim grow">
+          {sectors.length} sectors · {systems.length} systems · {charted} charted for the party
+        </span>
+        <button className="btn ghost sm" onClick={() => fitTo({ kind: 'all' })} title="Show everything on the map">
+          <Icon name="focus" size={13} /> View
+        </button>
+      </div>
+      <div className="panel-body row wrap">
+        <span className="label">Set party knowledge for all {systems.length} systems</span>
+        {Object.entries(PRESETS).map(([id, p]) => (
+          <ConfirmButton key={id} label={p.label} confirm={`Set all to ${p.label.toLowerCase()}`} className="btn sm gm" onConfirm={() => void setAllKnowledge(systems, id, p.label)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SectorManager({ onClose }: { onClose: () => void }) {
   const sectors = useType('sector');
+  const systems = useType('system');
   const [adding, setAdding] = useState(false);
+  const [fromMap, setFromMap] = useState(false);
   const sorted = useMemo(() => [...sectors].sort((a, b) => a.y - b.y || a.x - b.x), [sectors]);
+  const bySector = useMemo(() => {
+    const out = new Map<string, StarSystem[]>();
+    for (const s of systems) {
+      const list = out.get(s.sectorId);
+      if (list) list.push(s);
+      else out.set(s.sectorId, [s]);
+    }
+    return out;
+  }, [systems]);
+  // A long list of sectors is shown one line each, with the things that concern the whole map first.
+  const many = sorted.length > 4;
   return (
     <Modal
       title="Sectors"
@@ -207,6 +317,9 @@ export function SectorManager({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <span className="grow small dim">Tip: zoom the map right out and click a dashed “+” square to add a sector next to an existing one.</span>
+          <button className="btn" onClick={() => setFromMap(true)} title="Pick published sectors and fetch them from travellermap.com">
+            <Icon name="globe" size={13} /> From the Traveller Map
+          </button>
           <button className="btn primary" onClick={() => setAdding(true)}>
             <Icon name="plus" size={13} /> New sector
           </button>
@@ -214,12 +327,16 @@ export function SectorManager({ onClose }: { onClose: () => void }) {
       }
     >
       <div className="col gap-12">
-        {sorted.length === 0 && <div className="notice">Your universe is empty. Create a sector, then import generator data, roll it randomly, or place systems by hand.</div>}
+        {sorted.length === 0 && <div className="notice">Your universe is empty. Create a sector, then import generator data, roll it randomly, or place systems by hand. Published sectors can be fetched from the Traveller Map.</div>}
+        {many && <WholeMap sectors={sorted} systems={systems} />}
+        {many && <RegionList />}
         {sorted.map((s) => (
-          <SectorCard key={s.id} sector={s} />
+          <SectorCard key={s.id} sector={s} mine={bySector.get(s.id) ?? NO_SYSTEMS} foldable={many} />
         ))}
+        {!many && <RegionList />}
       </div>
       {adding && <NewSectorDialog onClose={() => setAdding(false)} />}
+      {fromMap && <TravellerMapDialog onClose={() => setFromMap(false)} />}
     </Modal>
   );
 }

@@ -11,7 +11,7 @@
  * plus sector metadata mixed in or pasted separately: subsector names and routes in
  * comment headers, MSEC lines or XML.
  */
-import { SUB_H, SUB_W, SUBSECTOR_LETTERS, formatHex, parseHex, subsectorOrigin } from './hex';
+import { SECTOR_H, SECTOR_W, SUB_H, SUB_W, SUBSECTOR_LETTERS, formatHex, hexCenter, hexDistance, hexNeighbors, parseHex, pointToHex, subsectorOrigin } from './hex';
 import { UWP_PATTERN, isValidUwp } from './uwp';
 
 export interface ParsedWorld {
@@ -34,12 +34,34 @@ export interface ParsedWorld {
   subsector?: string;
 }
 
+/** How many sectors over an end of a route lies: [x, y], +x trailing, +y rimward. */
+export type SectorOffset = [number, number];
+
+export interface ParsedRoute {
+  start: string;
+  end: string;
+  /** Set when that end is in a neighbouring sector rather than this one. */
+  startOffset?: SectorOffset;
+  endOffset?: SectorOffset;
+}
+
+export interface ParsedBorder {
+  /** What to call the area: the border's own label, else the allegiance's name, else its code. */
+  name: string;
+  allegiance?: string;
+  /** A CSS colour when the source gives one. */
+  color?: string;
+  /** Every hex of this sector on or inside the border (CCRR). */
+  hexes: string[];
+}
+
 export interface ParsedMeta {
   sectorName?: string;
   abbreviation?: string;
   /** Subsector names by letter A–P. */
   subsectors: Record<string, string>;
-  routes: { start: string; end: string }[];
+  routes: ParsedRoute[];
+  borders: ParsedBorder[];
 }
 
 export interface ParseResult {
@@ -176,41 +198,210 @@ function worldFromRecord(rec: Partial<Record<keyof ParsedWorld, string>>): Parse
 
 // ───────────────────────────── metadata ─────────────────────────────
 
+/** "0312" → column 3, row 12. Border paths may step one hex outside the sector (column 0 or 33, row 0 or 41). */
+function pathHex(token: string): { col: number; row: number } | null {
+  const m = /^(\d{2})(\d{2})$/.exec(token);
+  return m ? { col: Number(m[1]), row: Number(m[2]) } : null;
+}
+
+/** The hexes on a straight line between two hexes, both ends included. */
+function hexLine(a: { gx: number; gy: number }, b: { gx: number; gy: number }): { gx: number; gy: number }[] {
+  const n = hexDistance(a, b);
+  if (n <= 1) return n === 0 ? [a] : [a, b];
+  const from = hexCenter(a.gx, a.gy);
+  const to = hexCenter(b.gx, b.gy);
+  const out: { gx: number; gy: number }[] = [];
+  for (let i = 0; i <= n; i++) {
+    // Sampling the line once per hex of distance lands in each hex it crosses; the nudge settles points that fall on an edge.
+    const t = i / n;
+    out.push(pointToHex(from.x + (to.x - from.x) * t + 1e-6, from.y + (to.y - from.y) * t + 2e-6));
+  }
+  return out;
+}
+
+/**
+ * Turns a border path into the hexes it encloses. Map tools list the hexes along the inside of a
+ * border, in order; where a state carries on into the next sector the path runs just outside the
+ * edge. The result is every hex of this sector that is on the path or cut off by it from the outside.
+ */
+export function fillBorder(path: string[]): string[] {
+  const steps = path.map(pathHex).filter((h): h is { col: number; row: number } => h !== null);
+  if (steps.length === 0) return [];
+  // Work in the map's own coordinates so that neighbours come from the one hex layout.
+  const wall = new Set<string>();
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const add = (gx: number, gy: number): void => {
+    wall.add(`${gx},${gy}`);
+    minX = Math.min(minX, gx);
+    maxX = Math.max(maxX, gx);
+    minY = Math.min(minY, gy);
+    maxY = Math.max(maxY, gy);
+  };
+  for (let i = 0; i < steps.length; i++) {
+    const a = { gx: steps[i].col - 1, gy: steps[i].row - 1 };
+    add(a.gx, a.gy);
+    const next = steps[i + 1];
+    // A path that skips hexes would leak, so close any gap with a straight run.
+    if (next) for (const h of hexLine(a, { gx: next.col - 1, gy: next.row - 1 })) add(h.gx, h.gy);
+  }
+  // Flood the surroundings from a corner of a box one hex bigger than the path; what the flood cannot reach is inside.
+  minX--;
+  maxX++;
+  minY--;
+  maxY++;
+  const outside = new Set<string>();
+  const queue: [number, number][] = [[minX, minY]];
+  outside.add(`${minX},${minY}`);
+  while (queue.length) {
+    const [gx, gy] = queue.pop()!;
+    for (const n of hexNeighbors(gx, gy)) {
+      if (n.gx < minX || n.gx > maxX || n.gy < minY || n.gy > maxY) continue;
+      const key = `${n.gx},${n.gy}`;
+      if (wall.has(key) || outside.has(key)) continue;
+      outside.add(key);
+      queue.push([n.gx, n.gy]);
+    }
+  }
+  const out: string[] = [];
+  for (let gx = Math.max(minX, 0); gx <= Math.min(maxX, SECTOR_W - 1); gx++) {
+    for (let gy = Math.max(minY, 0); gy <= Math.min(maxY, SECTOR_H - 1); gy++) {
+      if (!outside.has(`${gx},${gy}`)) out.push(formatHex(gx + 1, gy + 1));
+    }
+  }
+  return out;
+}
+
+const attr = (tag: string, name: string): string | undefined => new RegExp(`\\s${name}="([^"]*)"`, 'i').exec(tag)?.[1];
+
+function offsetOf(x: string | undefined, y: string | undefined): SectorOffset | undefined {
+  const dx = Number(x ?? 0);
+  const dy = Number(y ?? 0);
+  return (dx || dy) && Number.isInteger(dx) && Number.isInteger(dy) ? [dx, dy] : undefined;
+}
+
+const unescapeXml = (text: string): string => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+
+/** True when the text carries MSEC lines ("sector Name", "route 0101 0202", "border 0101 0102 …"). */
+const looksLikeMsec = (text: string): boolean => /^[ ]*sector[ ]+[^\t\n]+$/im.test(text) || /^\s*(?:route|border)\s+(?:[-+]?\d\s+[-+]?\d\s+)?\d{4}\b/im.test(text);
+
 function parseMeta(text: string): ParsedMeta {
-  const meta: ParsedMeta = { subsectors: {}, routes: [] };
+  const meta: ParsedMeta = { subsectors: {}, routes: [], borders: [] };
   // Comment headers: "# Subsector A: Name", "# Name: Sector", "# Abbreviation: Abc"
   for (const m of text.matchAll(/^\s*#\s*Subsector\s+([A-P])\s*:\s*(.+?)\s*$/gim)) meta.subsectors[m[1].toUpperCase()] = m[2];
+  // The first name is the usual one; one in another language carries a tag such as "(va)".
   const nameHeader = /^\s*#\s*Name\s*:\s*(.+?)\s*$/im.exec(text);
-  if (nameHeader && !/\(\w{2}\)\s*$/.test(nameHeader[1])) meta.sectorName = nameHeader[1];
+  if (nameHeader) meta.sectorName = nameHeader[1].replace(/\s*\(\w{2}\)$/, '') || undefined;
   const abbr = /^\s*#\s*Abbreviation\s*:\s*(\S+)/im.exec(text);
   if (abbr) meta.abbreviation = abbr[1];
-  // MSEC: "sector Name", "a Name" … "p Name", "route 0101 0202"
-  const msecSector = /^\s*sector\s+(.+?)\s*$/im.exec(text);
-  if (msecSector) meta.sectorName ??= msecSector[1];
-  for (const m of text.matchAll(/^\s*([a-p])\s+(\S.*?)\s*$/gim)) {
-    // Only treat single-letter lines as subsector names when the file looks like MSEC.
-    if (msecSector || /^\s*route\s+\d{4}\s+\d{4}/im.test(text)) meta.subsectors[m[1].toUpperCase()] ??= m[2];
-  }
-  for (const m of text.matchAll(/^\s*route\s+(?:[-+]?\d\s+[-+]?\d\s+)?(\d{4})\s+(?:[-+]?\d\s+[-+]?\d\s+)?(\d{4})/gim)) {
-    meta.routes.push({ start: m[1], end: m[2] });
-  }
+
+  const routeKeys = new Set<string>();
+  const addRoute = (start: string, end: string, startOffset?: SectorOffset, endOffset?: SectorOffset): void => {
+    const side = (hex: string, o?: SectorOffset): string => `${hex}@${o ? o.join(',') : ''}`;
+    const a = side(start, startOffset);
+    const b = side(end, endOffset);
+    if (a === b) return;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    if (routeKeys.has(key)) return;
+    routeKeys.add(key);
+    meta.routes.push({ start, end, ...(startOffset ? { startOffset } : {}), ...(endOffset ? { endOffset } : {}) });
+  };
+  // Borders by their path, so that the same border given in two forms (XML and MSEC) is counted once.
+  const borders = new Map<string, { path: string[]; name?: string; allegiance?: string; color?: string }>();
+  const addBorder = (path: string[], info: { name?: string; allegiance?: string; color?: string }): void => {
+    if (path.length === 0) return;
+    const key = path.join(' ');
+    const have = borders.get(key);
+    if (have) {
+      have.name ??= info.name;
+      have.allegiance ??= info.allegiance;
+      have.color ??= info.color;
+    } else borders.set(key, { path, ...info });
+  };
+
   // XML metadata.
   if (/<Sector[\s>]/i.test(text)) {
     const xmlName = /<Name(?:\s[^>]*)?>([^<]+)<\/Name>/i.exec(text);
-    if (xmlName) meta.sectorName ??= xmlName[1].trim();
+    if (xmlName) meta.sectorName ??= unescapeXml(xmlName[1].trim());
     const xmlAbbr = /<Sector[^>]*\sAbbreviation="([^"]+)"/i.exec(text);
     if (xmlAbbr) meta.abbreviation ??= xmlAbbr[1];
     for (const m of text.matchAll(/<Subsector\s+Index="([A-P])"[^>]*>([^<]*)<\/Subsector>/gi)) {
-      if (m[2].trim()) meta.subsectors[m[1].toUpperCase()] ??= m[2].trim();
+      if (m[2].trim()) meta.subsectors[m[1].toUpperCase()] ??= unescapeXml(m[2].trim());
     }
-    for (const m of text.matchAll(/<Route\s+([^>]*?)\/?>/gi)) {
-      const start = /Start="(\d{4})"/i.exec(m[1]);
-      const end = /End="(\d{4})"/i.exec(m[1]);
-      // Routes that leave the sector carry offsets; those are skipped.
-      if (start && end && !/(Start|End)Offset[XY]="[-+]?[1-9]/i.test(m[1])) meta.routes.push({ start: start[1], end: end[1] });
+    for (const m of text.matchAll(/<Route(\s[^>]*?)\/?>/gi)) {
+      const start = attr(m[1], 'Start');
+      const end = attr(m[1], 'End');
+      if (!start || !end || !/^\d{4}$/.test(start) || !/^\d{4}$/.test(end)) continue;
+      addRoute(start, end, offsetOf(attr(m[1], 'StartOffsetX'), attr(m[1], 'StartOffsetY')), offsetOf(attr(m[1], 'EndOffsetX'), attr(m[1], 'EndOffsetY')));
+    }
+    const allegiances = new Map<string, string>();
+    for (const m of text.matchAll(/<Allegiance(\s[^>]*)>([^<]*)<\/Allegiance>/gi)) {
+      const code = attr(m[1], 'Code');
+      if (code && m[2].trim()) allegiances.set(code, unescapeXml(m[2].trim()));
+    }
+    for (const m of text.matchAll(/<Border(\s[^>]*)?>([^<]*)<\/Border>/gi)) {
+      const tag = m[1] ?? '';
+      const code = attr(tag, 'Allegiance');
+      const label = attr(tag, 'Label');
+      // A name such as "Kestrel Concord, Home Fleet" is one part of a larger state: name the area after the state.
+      const name = (label ? unescapeXml(label) : code ? allegiances.get(code)?.split(',')[0] : undefined)?.trim();
+      addBorder(m[2].trim().split(/\s+/).filter((t) => /^\d{4}$/.test(t)), { name: name || code, allegiance: code, color: attr(tag, 'Color') });
     }
   }
+
+  // MSEC: "sector Name", "a Name" … "p Name", "route 0101 0202", "label 0101 Name", "border 0101 0102 … colour"
+  const msecSector = /^[ ]*sector[ ]+([^\t\n]+?)[ ]*$/im.exec(text);
+  if (msecSector) meta.sectorName ??= msecSector[1];
+  if (looksLikeMsec(text)) {
+    for (const m of text.matchAll(/^\s*([a-p])\s+(\S.*?)\s*$/gim)) meta.subsectors[m[1].toUpperCase()] ??= m[2];
+    for (const m of text.matchAll(/^\s*route\s+(?:([-+]?\d)\s+([-+]?\d)\s+)?(\d{4})\s+(?:([-+]?\d)\s+([-+]?\d)\s+)?(\d{4})\b/gim)) {
+      addRoute(m[3], m[6], offsetOf(m[1], m[2]), offsetOf(m[4], m[5]));
+    }
+    // A label line names the borders that follow it; borders of one state share a colour.
+    let label: string | undefined;
+    const msecBorders: { path: string[]; name?: string; color?: string }[] = [];
+    for (const line of text.split('\n')) {
+      const l = /^\s*label\s+\d{4}\s+(\S.*?)\s*$/i.exec(line);
+      if (l) {
+        label = l[1];
+        continue;
+      }
+      const b = /^\s*border\s+(.+?)\s*$/i.exec(line);
+      if (!b) {
+        if (line.trim() && !line.trim().startsWith('#')) label = undefined;
+        continue;
+      }
+      const tokens = b[1].split(/\s+/);
+      const path = tokens.filter((t) => /^\d{4}$/.test(t));
+      const color = tokens.find((t) => !/^\d{4}$/.test(t));
+      msecBorders.push({ path, name: label, color });
+      label = undefined;
+    }
+    const nameByColor = new Map<string, string>();
+    for (const b of msecBorders) if (b.name && b.color && !nameByColor.has(b.color)) nameByColor.set(b.color, b.name);
+    for (const b of msecBorders) addBorder(b.path, { name: b.name ?? (b.color ? nameByColor.get(b.color) : undefined), color: b.color });
+  }
+
+  for (const b of borders.values()) {
+    const hexes = fillBorder(b.path);
+    if (hexes.length) meta.borders.push({ name: b.name ?? 'Border', ...(b.allegiance ? { allegiance: b.allegiance } : {}), ...(b.color ? { color: b.color } : {}), hexes });
+  }
   return meta;
+}
+
+/** The text with sector metadata (an XML document, MSEC lines) taken out, so that it is not read as rows of worlds. */
+function withoutMeta(text: string): string {
+  let out = text.replace(/<\?xml[^>]*\?>/gi, '').replace(/<Sector[\s>][\s\S]*?<\/Sector>/gi, '');
+  if (looksLikeMsec(out)) {
+    out = out
+      .split('\n')
+      // Rows of worlds are never taken out: they hold a world profile, and a tab-delimited header row holds tabs.
+      .filter((line) => UWP_PATTERN.test(line) || line.includes('\t') || !/^ *(?:(?:sector|route|border|label|region)\b|[a-p] +\S)/i.test(line))
+      .join('\n');
+  }
+  return out;
 }
 
 // ───────────────────────────── formats ─────────────────────────────
@@ -267,7 +458,7 @@ function splitCsvLine(line: string): string[] {
   return out;
 }
 
-function parseDelimited(lines: string[], split: (line: string) => string[], warnings: string[]): ParsedWorld[] | null {
+function parseDelimited(lines: string[], split: (line: string) => string[], warnings: string[], meta?: ParsedMeta): ParsedWorld[] | null {
   const headerIndex = lines.findIndex((l) => {
     const fields = split(l).map(fieldFor);
     return fields.includes('hex') && fields.includes('uwp');
@@ -275,19 +466,30 @@ function parseDelimited(lines: string[], split: (line: string) => string[], warn
   if (headerIndex < 0) return null;
   const fields = split(lines[headerIndex]).map(fieldFor);
   const worlds: ParsedWorld[] = [];
+  const sectors = new Set<string>();
   let skipped = 0;
   for (const line of lines.slice(headerIndex + 1)) {
     if (!line.trim() || line.trim().startsWith('#')) continue;
     const cells = split(line);
     const rec: Partial<Record<keyof ParsedWorld, string>> = {};
+    let sector = '';
     fields.forEach((field, i) => {
-      if (field && field !== 'sector' && cells[i] !== undefined) rec[field] = cells[i];
+      if (field === 'sector') sector = (cells[i] ?? '').trim();
+      else if (field && cells[i] !== undefined) rec[field] = cells[i];
     });
     const world = worldFromRecord(rec);
-    if (world) worlds.push(world);
-    else skipped++;
+    if (world) {
+      worlds.push(world);
+      if (sector) sectors.add(sector);
+    } else skipped++;
   }
   if (skipped) warnings.push(`${skipped} row(s) had no usable hex and UWP and were skipped.`);
+  // A "Sector" column that says the same thing on every row names the sector: a short code, or the name in full.
+  if (meta && sectors.size === 1) {
+    const [value] = sectors;
+    if (/^\S{1,6}$/.test(value)) meta.abbreviation ??= value;
+    else meta.sectorName ??= value;
+  }
   return worlds.length ? worlds : null;
 }
 
@@ -443,7 +645,7 @@ export function parseSectorData(input: string): ParseResult {
   const text = input.replace(/\r\n?/g, '\n').replace(/^﻿/, '');
   const warnings: string[] = [];
   const meta = parseMeta(text);
-  const lines = text.split('\n');
+  const lines = withoutMeta(text).split('\n');
 
   let format: ParseResult['format'] = 'none';
   let worlds: ParsedWorld[] = [];
@@ -454,7 +656,7 @@ export function parseSectorData(input: string): ParseResult {
     worlds = json;
   }
   if (format === 'none') {
-    const tab = lines.some((l) => l.includes('\t')) ? parseDelimited(lines, (l) => l.split('\t'), warnings) : null;
+    const tab = lines.some((l) => l.includes('\t')) ? parseDelimited(lines, (l) => l.split('\t'), warnings, meta) : null;
     if (tab) {
       format = 'tab';
       worlds = tab;
@@ -468,7 +670,7 @@ export function parseSectorData(input: string): ParseResult {
     }
   }
   if (format === 'none') {
-    const csv = lines.some((l) => l.includes(',')) ? parseDelimited(lines, splitCsvLine, warnings) : null;
+    const csv = lines.some((l) => l.includes(',')) ? parseDelimited(lines, splitCsvLine, warnings, meta) : null;
     if (csv) {
       format = 'csv';
       worlds = csv;

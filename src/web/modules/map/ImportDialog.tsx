@@ -6,16 +6,17 @@ import { NAME_STYLES } from '../../../shared/names';
 import { parseSectorData } from '../../../shared/sectorFormats';
 import { PARTY, type Sector } from '../../../shared/types';
 import { act } from '../../net';
-import { toast, useRules, useType } from '../../store';
+import { toast, useCampaign, useRules, useType } from '../../store';
 import { Field, Modal, Segmented } from '../../ui/basics';
+import { cssToHex } from '../../ui/color';
 import { Icon } from '../../ui/Icon';
 import { fitTo } from './mapStore';
 
-type Reveal = 'hidden' | 'detected' | 'charted';
+export type Reveal = 'hidden' | 'detected' | 'charted';
 
-function RevealChoice({ value, onChange }: { value: Reveal; onChange: (v: Reveal) => void }) {
+export function RevealChoice({ value, onChange }: { value: Reveal; onChange: (v: Reveal) => void }) {
   return (
-    <Field label="What the party knows about these systems" hint={value === 'hidden' ? 'Players see nothing until you reveal systems.' : value === 'detected' ? 'Players see that systems exist, without names or data.' : 'Players see names and survey data, as on a public star chart.'}>
+    <Field label="What the party knows about these systems" hint={value === 'hidden' ? 'Players see nothing until you reveal systems.' : value === 'detected' ? 'Players see that systems exist, without names or data.' : 'Players see names and survey data, as on a public star chart, with its routes and any borders that come with the data.'}>
       <Segmented gm value={value} onChange={onChange} options={(Object.keys(PRESETS) as Reveal[]).map((id) => ({ id, label: PRESETS[id].label }))} />
     </Field>
   );
@@ -29,29 +30,47 @@ export function ImportDialog({ sector, onClose }: { sector: Sector; onClose: () 
   const [mode, setMode] = useState<'skip' | 'replace'>('skip');
   const [reveal, setReveal] = useState<Reveal>('hidden');
   const [useMeta, setUseMeta] = useState(true);
+  const [wikiPages, setWikiPages] = useState(true);
   const [busy, setBusy] = useState(false);
+  const autoWiki = useCampaign()?.settings.wikiAutoPublish ?? false;
 
   const parsed = useMemo(() => parseSectorData(text), [text]);
   // Subsector-sized data defaults to a subsector slot; anything else must be a whole sector.
   const target = placement === 'auto' ? (parsed.looksLikeSubsector ? 'A' : 'sector') : placement;
   const occupied = useMemo(() => new Set(systems.filter((s) => s.sectorId === sector.id).map((s) => s.hex)), [systems, sector.id]);
-  const metaCount = Object.keys(parsed.meta.subsectors).length + parsed.meta.routes.length;
+  const meta = parsed.meta;
+  const metaCount = Object.keys(meta.subsectors).length + meta.routes.length + meta.borders.length;
+  const metaParts = (
+    [
+      [Object.keys(meta.subsectors).length, 'subsector name'],
+      [meta.routes.length, 'route'],
+      [meta.borders.length, 'border'],
+    ] as [number, string][]
+  )
+    .filter(([n]) => n > 0)
+    .map(([n, what]) => `${n} ${what}${n === 1 ? '' : 's'}`);
 
-  const load = async (file: File) => setText(await file.text());
+  // Several files can be loaded together: a sector's worlds and its metadata usually come separately.
+  const load = async (files: FileList) => setText((await Promise.all([...files].map((f) => f.text()))).join('\n'));
 
   const run = async () => {
     setBusy(true);
     try {
-      const res = await act<{ created: number; replaced: number; skipped: number; routes: number }>('map.import', {
+      const withMeta = useMeta && target === 'sector';
+      const res = await act<{ created: number; replaced: number; skipped: number; routes: number; routesWaiting: number; regions: number }>('map.import', {
         sectorId: sector.id,
         worlds: parsed.worlds,
         subsector: target === 'sector' ? undefined : target,
         mode,
-        subsectorNames: useMeta && target === 'sector' ? parsed.meta.subsectors : {},
-        routes: useMeta && target === 'sector' ? parsed.meta.routes : [],
+        subsectorNames: withMeta ? meta.subsectors : {},
+        routes: withMeta ? meta.routes : [],
+        borders: withMeta ? meta.borders.map((b) => ({ name: b.name, color: cssToHex(b.color), hexes: b.hexes })) : [],
         reveal: reveal === 'hidden' ? undefined : { preset: reveal, audience: PARTY },
+        wikiPages: autoWiki ? wikiPages : undefined,
       });
-      toast(`Imported: ${res.created} new, ${res.replaced} updated, ${res.skipped} skipped${res.routes ? `, ${res.routes} routes` : ''}.`, 'ok');
+      const extras = [res.routes ? `${res.routes} routes` : '', res.regions ? `${res.regions} region${res.regions === 1 ? '' : 's'}` : ''].filter(Boolean);
+      const waiting = res.routesWaiting ? ` ${res.routesWaiting} route${res.routesWaiting === 1 ? ' leads' : 's lead'} into a neighbouring sector and will be drawn when it has those systems.` : '';
+      toast(`Imported: ${res.created} new, ${res.replaced} updated, ${res.skipped} skipped${extras.length ? `, ${extras.join(', ')}` : ''}.${waiting}`, 'ok');
       fitTo(target === 'sector' ? { kind: 'sector', id: sector.id } : { kind: 'subsector', id: sector.id, letter: target });
       onClose();
     } catch (err) {
@@ -96,9 +115,9 @@ export function ImportDialog({ sector, onClose }: { sector: Sector; onClose: () 
             />
           </Field>
           <div className="row">
-            <input ref={fileRef} type="file" accept=".txt,.sec,.tab,.tsv,.csv,.json,.xml,.msec,text/plain" className="hidden" onChange={(e) => e.target.files?.[0] && void load(e.target.files[0])} />
-            <button className="btn sm" onClick={() => fileRef.current?.click()}>
-              <Icon name="upload" size={12} /> Load file
+            <input ref={fileRef} type="file" multiple accept=".txt,.sec,.tab,.tsv,.csv,.json,.xml,.msec,text/plain" className="hidden" onChange={(e) => e.target.files?.length && void load(e.target.files)} />
+            <button className="btn sm" onClick={() => fileRef.current?.click()} title="Choose one file, or a sector's data and metadata files together">
+              <Icon name="upload" size={12} /> Load files
             </button>
             {text && (
               <button className="btn ghost sm" onClick={() => setText('')}>
@@ -131,7 +150,13 @@ export function ImportDialog({ sector, onClose }: { sector: Sector; onClose: () 
           {metaCount > 0 && target === 'sector' && (
             <label className="check small">
               <input type="checkbox" checked={useMeta} onChange={(e) => setUseMeta(e.target.checked)} />
-              Also apply {Object.keys(parsed.meta.subsectors).length} subsector names and {parsed.meta.routes.length} routes found in the data
+              Also apply the {metaParts.join(', ')} found in the data
+            </label>
+          )}
+          {autoWiki && parsed.worlds.length > 0 && (
+            <label className="check small">
+              <input type="checkbox" checked={wikiPages} onChange={(e) => setWikiPages(e.target.checked)} />
+              Add a wiki page for each of these systems
             </label>
           )}
         </div>

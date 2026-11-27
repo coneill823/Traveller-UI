@@ -11,7 +11,7 @@ every other screen updates within a moment.
 
 | Screen | What it does |
 | --- | --- |
-| **Map** | The universe in the classic hex style, zooming from universe to sector, subsector, system and world. Add and place sectors, roll or place systems, draw routes, import from generators. Detailed surveys that work out every star, world and moon of a system. Route planner for jump rating, fuel, refuelling and travel zones. |
+| **Map** | The universe in the classic hex style, zooming from universe to sector, subsector, system and world. Add and place sectors, roll or place systems, draw routes, import from generators, or fetch published sectors from the Traveller Map with their routes and borders. Detailed surveys that work out every star, world and moon of a system. Route planner for jump rating, fuel, refuelling and travel zones. |
 | **Crew** | Character sheets for travellers, NPCs and creatures: characteristics, skills, weapons and armour, with one-click checks, attacks and damage. Rolls can be made in the app or typed in from the table. Ready-made backgrounds and careers for creating someone quickly, where the rules packs carry them. |
 | **Combat** | Encounters with the opposition in initiative order along the top and the party along the bottom, an uploadable battlemap with draggable tokens, turns put together on an action bar and published to everyone as an animated replay. |
 | **Cargo** | Personal kit, ship's lockers and cargo holds for any number of people and ships; search, move things between holders, pay from personal credits or the ship's account. A catalogue of everything the rules packs list, with how hard each thing is to find on the world you are on. |
@@ -96,6 +96,8 @@ single **player**, and can take it back.
 
 - Systems and bodies have levels: *Hidden* → *Detected* (something is there) → *Charted* (name and
   survey data). Each facet can also be set separately.
+- A route is part of the chart: it appears once the viewer knows both of its ends are there and
+  has had at least one of them charted.
 - Notes and wiki sections are revealed one at a time.
 - Redaction happens on the server. Hidden data is never sent to a player's browser, so it cannot
   be found by inspecting the page.
@@ -146,9 +148,45 @@ file. The format is detected automatically and previewed before anything is save
 - Legacy `.sec` files
 - JSON world lists and CSV with a header row
 - Plain lists where each line has a four-digit hex and a world profile such as `C8759A9-8`
-- Sector metadata (subsector names and routes) in comment headers, MSEC lines or XML
+- Sector metadata in comment headers, MSEC lines or XML: subsector names, routes and borders. It
+  can be pasted after the worlds, or loaded with them: **Load files** takes several files at once.
 
 Subsector-sized data (hexes 0101–0810) can be dropped into any of a sector's sixteen subsectors.
+
+- **Routes** between two worlds of the sector are drawn at once. A route that runs into a
+  neighbouring sector is drawn if that sector already has the world at the far end; if not, it is
+  kept with the sector and drawn when the neighbour arrives, whichever order you import them in.
+- **Borders** become coloured regions on the map: every hex on or inside a border is painted. A
+  state that spreads over several sectors ends up as one region, because borders with the same name
+  are joined. Regions are listed in the **Sectors** panel, where each can be renamed, recoloured,
+  shown to or hidden from the party, or deleted. The part of a region that lies over a sector
+  moves with that sector and is removed with it.
+- An import whose worlds are **charted** for the party also shows the party its regions. Routes
+  need no telling: they appear as their worlds are charted, now or later.
+- With a wiki connected, an import normally writes a page for every system. Untick **Add a wiki
+  page…** to leave them out of one import; the control room can write the missing pages later, and
+  any system's notes can make its own.
+
+### Published sectors from the Traveller Map
+
+**Sectors → From the Traveller Map** shows the sectors of [travellermap.com](https://travellermap.com)
+on a grid laid out like the map itself. Click the ones you want (shift-click takes the whole block
+between two sectors; the search box finds one by name, including those beyond the grid), choose
+what the party knows, and **Add**. Each sector is put at the same position on your map, so
+neighbours line up and their routes join, and a sector already on your map is added to rather than
+replaced.
+
+- The GM's browser fetches the files from travellermap.com, three small requests per sector, one
+  after another. The server never contacts it, and nothing is fetched until you ask. Nothing from
+  the map is part of this program: the data belongs to its publishers and is yours to use at your
+  own table.
+- Size is not a worry. A trial with twenty-eight sectors (12,000 systems, 2,600 routes and fifty
+  regions) took about half a minute to bring in, and the map, the dice and the route planner
+  stayed quick. That much data is about 16 MB each time the GM's browser loads the app; players
+  are sent only what they have been shown.
+- Wiki pages are left out unless you tick the box: a sector holds several hundred systems.
+- The Traveller Map makes no charge for this. Its author asks to hear from people who build on
+  its services, and welcomes donations to support the site.
 
 ## Using the tools
 
@@ -242,6 +280,9 @@ tests        Vitest: unit tests plus end-to-end tests that run the real server
 - After every change the **hub** works out, per connection, how that viewer's redacted picture
   changed and sends only that difference.
 - What a viewer may see is decided in one place: `src/shared/knowledge.ts`.
+- The browser keeps what it was sent in one table that is updated in place (`src/web/store.ts`).
+  Screens watch one record, one type's list or one type's lookup, never the whole table, so a
+  small change costs little however much is loaded.
 - Rules engines (`src/shared/rules`) take a rules pack and plain data and return plain data, so
   they run the same on the server and in the browser and are easy to test.
 - Tests that need rule tables skip themselves when no pack is present.

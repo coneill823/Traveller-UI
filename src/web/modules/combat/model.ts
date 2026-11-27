@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { healthStatus } from '../../../shared/rules/character';
 import type { Character, Combatant, CombatantSeen, Encounter, Id, TurnRecord, TurnResult, TurnStep } from '../../../shared/types';
 import { onEvent } from '../../net';
-import { getEntity, useApp, useIsGm, useMe } from '../../store';
+import { getEntity, useById, useIsGm, useMe } from '../../store';
 
 export interface CombatantInfo {
   combatant: Combatant;
@@ -36,14 +36,14 @@ export function infoFor(c: Combatant, character: Character | undefined, me: { pl
 
 /** Everyone in the fight as this viewer sees them, keyed by combatant id. */
 export function useCombatants(encounter: Encounter): Map<Id, CombatantInfo> {
-  const ents = useApp((s) => s.ents);
+  const characters = useById('character');
   const me = useMe();
   const gm = useIsGm();
   return useMemo(() => {
     const map = new Map<Id, CombatantInfo>();
-    for (const c of encounter.combatants) map.set(c.id, infoFor(c, ents[c.characterId] as Character | undefined, me, gm));
+    for (const c of encounter.combatants) map.set(c.id, infoFor(c, characters.get(c.characterId), me, gm));
     return map;
-  }, [encounter.combatants, ents, me, gm]);
+  }, [encounter.combatants, characters, me, gm]);
 }
 
 /** Best initiative first; ties go to the higher DEX where it is known. Those out of the fight go last. */

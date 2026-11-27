@@ -1,17 +1,17 @@
 /** Universe actions: sectors, systems, bodies, routes, regions, imports and random generation. */
-import { SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, formatHex, parseHex, subsectorOf, subsectorOrigin, toGlobal } from '../../shared/hex';
+import { SECTOR_H, SECTOR_W, SUBSECTOR_LETTERS, formatHex, globalKey, parseHex, subsectorOf, subsectorOrigin, toGlobal } from '../../shared/hex';
 import { PRESETS } from '../../shared/knowledge';
 import { generateNames } from '../../shared/names';
 import { generateSystem, likelyMainworld, starsLabel, type KnownSystem, type SystemLayout } from '../../shared/rules/system';
 import { settleSystem, societyOf, type SocietyInput } from '../../shared/rules/society';
 import { detailSystem } from '../../shared/rules/worlddetail';
 import { generateArea, generateWorld, suggestTradeRoutes, systemTradeCodes } from '../../shared/rules/world';
-import type { ParsedWorld } from '../../shared/sectorFormats';
-import type { Body, BodyData, BodyKind, Campaign, Id, RouteKind, Sector, Society, StarSystem, TravelZone } from '../../shared/types';
+import type { ParsedBorder, ParsedRoute, ParsedWorld, SectorOffset } from '../../shared/sectorFormats';
+import type { Body, BodyData, BodyKind, Campaign, Id, Region, RouteKind, Sector, Society, StarSystem, TravelZone } from '../../shared/types';
 import { formatPbg, isValidUwp, parsePbg, parseUwp } from '../../shared/uwp';
 import { hashString, seededRng } from '../../shared/util';
 import type { Tx } from '../state';
-import { applyPreset, CAMPAIGN_ID, cascadeDelete, checkAudience } from './core';
+import { applyPreset, CAMPAIGN_ID, cascadeDelete, checkAudience, moveRegionHexes } from './core';
 import { action, ActionError, check, requireGm, type ActionCtx } from './registry';
 
 const BODY_KINDS: readonly BodyKind[] = ['star', 'planet', 'gasGiant', 'belt', 'moon', 'station', 'poi'];
@@ -117,9 +117,18 @@ action('sector.move', (ctx, p) => {
   const x = check.int(p.x, 'x', { min: -500, max: 500 });
   const y = check.int(p.y, 'y', { min: -500, max: 500 });
   if (ctx.tx.all('sector').some((s) => s.id !== sector.id && s.x === x && s.y === y)) throw new ActionError('There is already a sector in that position');
+  if (sector.x === x && sector.y === y) return;
+  // The regions painted over the sector go with it.
+  moveRegionHexes(ctx.tx, sector, { x, y });
   ctx.tx.update<Sector>(sector.id, (s) => {
     s.x = x;
     s.y = y;
+    // Routes waiting for a neighbour were about the old neighbours.
+    if (s.gm?.waitingRoutes !== undefined) {
+      const { waitingRoutes: _gone, ...rest } = s.gm;
+      if (Object.keys(rest).length) s.gm = rest;
+      else delete s.gm;
+    }
   });
 });
 
@@ -506,7 +515,119 @@ export interface ImportSummary {
   replaced: number;
   skipped: number;
   routes: number;
+  /** Routes into a neighbouring sector that has no system there yet. They are drawn when it gets one. */
+  routesWaiting: number;
+  /** Regions created or added to. */
+  regions: number;
   systemIds: Id[];
+  routeIds: Id[];
+  regionIds: Id[];
+}
+
+type ImportBorder = Pick<ParsedBorder, 'name' | 'color' | 'hexes'>;
+
+/** A region may grow to this many hexes before an import starts another of the same name. */
+const REGION_MAX_HEXES = 60_000;
+const REGION_COLORS = ['#e5484d', '#3e9bff', '#f5a524', '#30a46c', '#a36bff', '#e879a8', '#12b5a6', '#c2b12f', '#ff7a45', '#7c8cff'];
+
+/** Looks up systems by sector position and hex, reading each sector's systems once. */
+class HexIndex {
+  private sectors = new Map<string, Sector>();
+  private systems = new Map<Id, Map<string, StarSystem>>();
+  constructor(private tx: Tx) {
+    for (const sector of tx.all('sector')) this.sectors.set(`${sector.x},${sector.y}`, sector);
+  }
+  sector(x: number, y: number): Sector | undefined {
+    return this.sectors.get(`${x},${y}`);
+  }
+  inSector(sector: Sector): Map<string, StarSystem> {
+    let map = this.systems.get(sector.id);
+    if (!map) this.systems.set(sector.id, (map = new Map(this.tx.where('system', 'sectorId', sector.id).map((s) => [s.hex, s]))));
+    return map;
+  }
+  /** The system at a hex of `home`, or of the sector `offset` away from it. */
+  find(home: Sector, hex: string, offset?: SectorOffset): StarSystem | undefined {
+    const sector = offset ? this.sector(home.x + offset[0], home.y + offset[1]) : home;
+    return sector ? this.inSector(sector).get(hex) : undefined;
+  }
+}
+
+function waitingRoutes(sector: Sector): ParsedRoute[] {
+  const list = sector.gm?.waitingRoutes;
+  return Array.isArray(list) ? (list as ParsedRoute[]) : [];
+}
+
+const sameRoute = (a: ParsedRoute, b: ParsedRoute): boolean =>
+  a.start === b.start && a.end === b.end && String(a.startOffset ?? '') === String(b.startOffset ?? '') && String(a.endOffset ?? '') === String(b.endOffset ?? '');
+
+/** Draws a route between two hexes if both have a system. Returns the route, 'exists', or 'missing'. */
+function linkRoute(tx: Tx, index: HexIndex, home: Sector, r: ParsedRoute): Id | 'exists' | 'missing' {
+  const a = index.find(home, r.start, r.startOffset);
+  const b = index.find(home, r.end, r.endOffset);
+  if (!a || !b) return 'missing';
+  if (a.id === b.id) return 'exists';
+  const exists = tx.where('route', 'a', a.id).concat(tx.where('route', 'a', b.id)).some((x) => (x.a === a.id && x.b === b.id) || (x.a === b.id && x.b === a.id));
+  if (exists) return 'exists';
+  return tx.create('route', { a: a.id, b: b.id, kind: 'comm' }).id;
+}
+
+/** Tries again the routes that a sector was keeping for a neighbour it did not have yet. */
+function linkWaitingRoutes(tx: Tx, index: HexIndex, sector: Sector, summary: ImportSummary): void {
+  const waiting = waitingRoutes(sector);
+  if (waiting.length === 0) return;
+  const still: ParsedRoute[] = [];
+  for (const r of waiting) {
+    const made = linkRoute(tx, index, sector, r);
+    if (made === 'missing') still.push(r);
+    else if (made !== 'exists') {
+      summary.routes++;
+      summary.routeIds.push(made);
+    }
+  }
+  if (still.length === waiting.length) return;
+  tx.update<Sector>(sector.id, (s) => {
+    const gm = { ...(s.gm ?? {}) };
+    if (still.length) gm.waitingRoutes = still;
+    else delete gm.waitingRoutes;
+    if (Object.keys(gm).length) s.gm = gm;
+    else delete s.gm;
+  });
+}
+
+function regionColor(name: string, given: string | undefined): string {
+  // A colour from the data is used when it is a plain CSS colour: "#e32736", "blue".
+  if (given && /^(#[0-9a-f]{3,8}|[a-z]{3,20})$/i.test(given)) return given.toLowerCase();
+  return REGION_COLORS[parseInt(hashString(name.toLowerCase()), 16) % REGION_COLORS.length];
+}
+
+/** Paints borders onto the map as regions, adding to a region of the same name when there is one. */
+function importBorders(tx: Tx, sector: Sector, borders: ImportBorder[], summary: ImportSummary): void {
+  const touched = new Set<Id>();
+  for (const border of borders) {
+    const name = border.name.trim().slice(0, 60);
+    if (!name) continue;
+    const keys = new Set<string>();
+    for (const hex of border.hexes) {
+      const h = parseHex(hex);
+      if (!h) continue;
+      const g = toGlobal(sector.x, sector.y, h.col, h.row);
+      keys.add(globalKey(g.gx, g.gy));
+    }
+    if (keys.size === 0) continue;
+    const same = tx.all('region').filter((r) => r.name.trim().toLowerCase() === name.toLowerCase());
+    // Leave out what a region of this name already covers; the rest goes to the first with room.
+    for (const region of same) for (const key of region.hexes) keys.delete(key);
+    if (keys.size === 0) continue;
+    const room = same.find((r) => r.hexes.length + keys.size <= REGION_MAX_HEXES);
+    if (room) {
+      tx.update<Region>(room.id, (r) => void r.hexes.push(...keys));
+      touched.add(room.id);
+    } else {
+      touched.add(tx.create('region', { name, color: same[0]?.color ?? regionColor(name, border.color), hexes: [...keys] }).id);
+    }
+  }
+  summary.regions = touched.size;
+  summary.regionIds = [...touched];
 }
 
 /** Writes parsed worlds into a sector. Hexes must already be sector-relative. */
@@ -514,10 +635,11 @@ export function importWorlds(
   tx: Tx,
   sector: Sector,
   worlds: ParsedWorld[],
-  opts: { mode: 'skip' | 'replace'; subsectorNames?: Record<string, string>; routes?: { start: string; end: string }[] },
+  opts: { mode: 'skip' | 'replace'; subsectorNames?: Record<string, string>; routes?: ParsedRoute[]; borders?: ImportBorder[] },
 ): ImportSummary {
-  const summary: ImportSummary = { created: 0, replaced: 0, skipped: 0, routes: 0, systemIds: [] };
-  const byHex = new Map(tx.where('system', 'sectorId', sector.id).map((s) => [s.hex, s]));
+  const summary: ImportSummary = { created: 0, replaced: 0, skipped: 0, routes: 0, routesWaiting: 0, regions: 0, systemIds: [], routeIds: [], regionIds: [] };
+  const index = new HexIndex(tx);
+  const byHex = index.inSector(sector);
 
   for (const w of worlds) {
     const data = {
@@ -562,22 +684,46 @@ export function importWorlds(
     });
   }
 
+  // Routes. One that runs into a neighbouring sector waits with this sector until the far end has a system.
+  const waiting = waitingRoutes(sector).slice();
+  let kept = false;
   for (const r of opts.routes ?? []) {
-    const a = byHex.get(r.start);
-    const b = byHex.get(r.end);
-    if (!a || !b || a.id === b.id) continue;
-    const exists = tx.where('route', 'a', a.id).concat(tx.where('route', 'a', b.id)).some((x) => (x.a === a.id && x.b === b.id) || (x.a === b.id && x.b === a.id));
-    if (exists) continue;
-    tx.create('route', { a: a.id, b: b.id, kind: 'comm' });
-    summary.routes++;
+    const made = linkRoute(tx, index, sector, r);
+    if (made === 'missing') {
+      if ((r.startOffset || r.endOffset) && !waiting.some((w) => sameRoute(w, r)) && waiting.length < 2000) {
+        waiting.push(r);
+        kept = true;
+      }
+    } else if (made !== 'exists') {
+      summary.routes++;
+      summary.routeIds.push(made);
+    }
   }
+  if (kept) tx.update<Sector>(sector.id, (s) => void (s.gm = { ...(s.gm ?? {}), waitingRoutes: waiting }));
+  // New systems here may be what this sector, or one beside it, was waiting for.
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const near = index.sector(sector.x + dx, sector.y + dy);
+      if (near) linkWaitingRoutes(tx, index, tx.get<Sector>(near.id) ?? near, summary);
+    }
+  }
+  summary.routesWaiting = waitingRoutes(tx.get<Sector>(sector.id) ?? sector).length;
+
+  if (opts.borders?.length) importBorders(tx, sector, opts.borders, summary);
   return summary;
+}
+
+function checkOffset(value: unknown, name: string): SectorOffset | undefined {
+  if (value === undefined || value === null) return undefined;
+  const pair = check.arr(value, name, (v, n) => check.int(v, n, { min: -1, max: 1 }), 2);
+  if (pair.length !== 2) throw new ActionError(`${name}: expected two numbers`);
+  return pair[0] || pair[1] ? [pair[0], pair[1]] : undefined;
 }
 
 action('map.import', (ctx, p) => {
   requireGm(ctx.me);
   const sector = ctx.tx.need('sector', check.id(p.sectorId, 'sectorId'));
-  let worlds = check.arr(p.worlds, 'worlds', checkWorld, 2000);
+  let worlds = check.arr(p.worlds ?? [], 'worlds', checkWorld, 2000);
   if (p.subsector) {
     // Subsector-local data: shift 0101–0810 into the chosen subsector.
     const letter = check.oneOf(p.subsector, 'subsector', SUBSECTOR_LETTERS.split(''));
@@ -593,11 +739,21 @@ action('map.import', (ctx, p) => {
   for (const [letter, name] of Object.entries(check.obj(p.subsectorNames ?? {}, 'subsectorNames'))) {
     if (typeof name === 'string') subsectorNames[letter.toUpperCase()] = name;
   }
-  const routes = check.arr(p.routes ?? [], 'routes', (v, n) => {
+  const routes = check.arr(p.routes ?? [], 'routes', (v, n): ParsedRoute => {
     const r = check.obj(v, n);
-    return { start: checkHex(r.start, `${n}.start`), end: checkHex(r.end, `${n}.end`) };
+    const startOffset = checkOffset(r.startOffset, `${n}.startOffset`);
+    const endOffset = checkOffset(r.endOffset, `${n}.endOffset`);
+    return { start: checkHex(r.start, `${n}.start`), end: checkHex(r.end, `${n}.end`), ...(startOffset ? { startOffset } : {}), ...(endOffset ? { endOffset } : {}) };
   }, 5000);
-  const summary = importWorlds(ctx.tx, sector, worlds, { mode, subsectorNames, routes });
+  const borders = check.arr(p.borders ?? [], 'borders', (v, n): ImportBorder => {
+    const b = check.obj(v, n);
+    return {
+      name: check.str(b.name, `${n}.name`, { max: 60 }),
+      color: check.optStr(b.color, `${n}.color`, { max: 20 }),
+      hexes: check.arr(b.hexes, `${n}.hexes`, checkHex, SECTOR_W * SECTOR_H),
+    };
+  }, 400);
+  const summary = importWorlds(ctx.tx, sector, worlds, { mode, subsectorNames, routes, borders });
   if (p.sectorName && typeof p.sectorName === 'string' && p.renameSector) {
     ctx.tx.update<Sector>(sector.id, (s) => void (s.name = check.str(p.sectorName, 'sectorName', { max: 60 })));
   }
@@ -605,8 +761,11 @@ action('map.import', (ctx, p) => {
     const preset = check.oneOf(p.reveal.preset, 'reveal.preset', Object.keys(PRESETS));
     const audience = checkAudience(ctx.tx, p.reveal.audience, 'reveal.audience');
     for (const id of summary.systemIds) applyPreset(ctx.tx, id, preset, audience);
+    // A chart shows whose space its worlds are in. (Its routes show by themselves once their ends are charted.)
+    if (preset === 'charted') for (const id of summary.regionIds) applyPreset(ctx.tx, id, 'detected', audience);
   }
-  publishToWiki(ctx, summary.systemIds);
+  // A big import can leave its wiki pages for later: they can be made from the control room at any time.
+  if (p.wikiPages !== false) publishToWiki(ctx, summary.systemIds);
   return summary;
 });
 

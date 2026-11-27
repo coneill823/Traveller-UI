@@ -6,11 +6,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SpaceAction, SpaceRules } from '../../../shared/rulepack';
 import { ammoOf, attackDm, CONDITION_LABEL, conditionOf, linkedBonus, locationName, missileFlight, rangeIndex, salvoArriving, weaponProfile } from '../../../shared/rules/space';
-import type { Battle, BattleRecord, BattleResult, BattleShip, BattleStepId, Character, CrewAction, Id, Ship } from '../../../shared/types';
+import type { Battle, BattleRecord, BattleResult, BattleShip, BattleStepId, CrewAction, Id, Ship } from '../../../shared/types';
 import { newId } from '../../../shared/util';
 import { act, onEvent, run } from '../../net';
 import { Link, navigate } from '../../router';
-import { getEntity, toast, useApp, useIsGm, useMe, useRules, useType } from '../../store';
+import { getEntity, toast, useById, useIsGm, useMe, useRules, useType } from '../../store';
 import { ConfirmButton, cx, EditableText, Field, Modal } from '../../ui/basics';
 import { beginDrag, useDropZone } from '../../ui/drag';
 import { Icon } from '../../ui/Icon';
@@ -136,7 +136,8 @@ export function BattleView({ battle }: { battle: Battle }) {
   const me = useMe();
   const pack = useRules();
   const rules = pack.space;
-  const ents = useApp((s) => s.ents);
+  const shipsById = useById('ship');
+  const characters = useById('character');
   const [dialog, setDialog] = useState(false);
   const [actFor, setActFor] = useState<Id | undefined>();
   const [ahead, setAhead] = useState(false);
@@ -144,12 +145,12 @@ export function BattleView({ battle }: { battle: Battle }) {
 
   const active = battle.status === 'active';
   const order = useMemo(() => orderOf(battle), [battle]);
-  const shipOf = (s: BattleShip | undefined) => (s?.shipId ? (ents[s.shipId] as Ship | undefined) : undefined);
+  const shipOf = (s: BattleShip | undefined) => (s?.shipId ? shipsById.get(s.shipId) : undefined);
   // Ranges are measured from the flagship; a player aboard another of the party's ships sees that one as their own.
   const flagship = battle.ships.find((s) => s.id === battle.flagship) ?? battle.ships.find((s) => s.side === 'party');
   const aboard = battle.ships.find((s) => {
     const ship = shipOf(s);
-    return !!ship?.party && Object.keys(ship.duties ?? {}).some((id) => (ents[id] as Character | undefined)?.ownerId === me?.playerId);
+    return !!ship?.party && Object.keys(ship.duties ?? {}).some((id) => characters.get(id)?.ownerId === me?.playerId);
   });
   const flag = (gm ? undefined : aboard) ?? flagship;
   const flagShip = shipOf(flag);
@@ -603,7 +604,7 @@ interface PlanProps {
 function CrewPlan({ battle, rules, planShip, ship, flag, plan, stations, freeHand, ahead, setAhead, me }: PlanProps) {
   const pack = useRules();
   const gm = useIsGm();
-  const ents = useApp((s) => s.ents);
+  const characters = useById('character');
   const mounts = useMemo(() => mountsOf(ship, pack.ships), [ship, pack.ships]);
   const [busy, setBusy] = useState(false);
   const send = (op: string, extra: Record<string, unknown>) => run('battle.plan', { id: battle.id, battleShipId: planShip.id, op, ...extra });
@@ -712,7 +713,7 @@ function CrewPlan({ battle, rules, planShip, ship, flag, plan, stations, freeHan
       <div className="actionbar-plan" data-drop="crewplan">
         {shown.length === 0 && <div className="plan-empty">The ship's actions for this step collect here: everyone aboard adds what their station does.</div>}
         {shown.map((a) => (
-          <CrewCard key={a.id} a={a} battle={battle} rules={rules} planShip={planShip} mounts={mounts} others={others} rangeTo={rangeTo} ship={ship} editable={gm || a.by === me || (!!a.characterId && (ents[a.characterId] as Character | undefined)?.ownerId === me)} who={a.characterId ? ((ents[a.characterId] as Character | undefined)?.name ?? 'Crew') : gm ? 'GM' : 'Crew'} onChange={(next) => void send('update', { action: next })} onRemove={() => void send('remove', { actionId: a.id })} stepName={stepName} />
+          <CrewCard key={a.id} a={a} battle={battle} rules={rules} planShip={planShip} mounts={mounts} others={others} rangeTo={rangeTo} ship={ship} editable={gm || a.by === me || (!!a.characterId && characters.get(a.characterId)?.ownerId === me)} who={a.characterId ? (characters.get(a.characterId)?.name ?? 'Crew') : gm ? 'GM' : 'Crew'} onChange={(next) => void send('update', { action: next })} onRemove={() => void send('remove', { actionId: a.id })} stepName={stepName} />
         ))}
       </div>
 
